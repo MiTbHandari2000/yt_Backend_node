@@ -49,6 +49,8 @@ const userSchema = new Schema(
   }
 );
 
+/--HASH THE PASSWORD BEFORE SAVE -/;
+
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
 
@@ -56,9 +58,13 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
+/-COMPARES THE PLAIN PASSWORD GIVEN DURING THE LOGIN AND HASHED PASSWORD STORED IN DB-/;
+
 userSchema.methods.isPasswordCorrect = async function (password) {
   return await bcrypt.compare(password, this.password);
 };
+
+/-GENERATES (JSON WEB TOKEN)ACCESS-TOKEN FOR USERS OR AUTHENTICATION OR AUTHORIZATION-/;
 
 userSchema.methods.generateAccessToken = function () {
   return jwt.sign(
@@ -74,6 +80,9 @@ userSchema.methods.generateAccessToken = function () {
     }
   );
 };
+
+/-GENERATES REFFRESH TOKEN FOR USER -/;
+
 userSchema.methods.generateRefreshToken = function () {
   return jwt.sign(
     {
