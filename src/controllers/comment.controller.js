@@ -107,6 +107,45 @@ const getVideoComments = asyncHandler(async (req, res) => {
 
 const addComment = asyncHandler(async (req, res) => {
   // TODO: add a comment to a video
+  const { videoId } = req.params;
+  const { content } = req.body;
+
+  if (!videoId?.trim() || !mongoose.Types.ObjectId.isValid(videoId)) {
+    throw new ApiError(400, "Valid Video ID is required");
+  }
+
+  if (!content?.trim()) {
+    throw new ApiError(400, "Comment content is required");
+  }
+
+  const video = await Video.findById(videoId);
+  if (!video) {
+    throw new ApiError(404, "video not found");
+  }
+
+  const comment = await Comment.create({
+    content,
+    video: videoId,
+    owner: req.user._id,
+  });
+
+  if (!comment) {
+    throw new ApiError(500, "Failed to add comment due to server error");
+  }
+
+  const populatedComment = await Comment.findById(comment._id).populate(
+    "owner",
+    "userName avatar"
+  );
+  return res
+    .status(201)
+    .json(
+      new ApiResponse(
+        200,
+        populatedComment || comment,
+        "Comment added successfully"
+      )
+    );
 });
 
 const updateComment = asyncHandler(async (req, res) => {
