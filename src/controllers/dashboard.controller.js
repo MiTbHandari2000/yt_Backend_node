@@ -79,6 +79,91 @@ const getChannelStats = asyncHandler(async (req, res) => {
 
 const getChannelVideos = asyncHandler(async (req, res) => {
   // TODO: Get all the videos uploaded by the channel
+
+  const userId = req.user?._id;
+
+  if (!userId) {
+    throw new ApiError(401, "User not authenticated");
+  }
+
+  let { page = 1, limit = 10 } = req.query;
+  page = parseInt(page);
+  limit = parseInt(limit);
+
+  if (isNaN(page) || page < 1) {
+    page = 1;
+  }
+  if (isNaN(limit) || limit < 1) {
+    limit = 10;
+  }
+  if (limit > 50) {
+    limit = 50;
+  }
+
+  try {
+    const videosQuery = Video.find({ owner: userId })
+
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .select(
+        "title description thumbnail videoFile views duration createdAt isPublished"
+      );
+
+    const [videos, totalVideosCount] = await Promise.all([
+      videosQuery.exec(),
+      Video.countDocuments({ owner: userId }),
+    ]);
+
+    if (totalVideosCount === 0) {
+      return res.status(200).json(
+        new ApiResponse(
+          200,
+          {
+            videos: [],
+            totalVideos: 0,
+            page: 1,
+            limit,
+            totalPages: 0,
+            hasNextPage: false,
+            hasPrevPage: false,
+          },
+          "This channel has no videos yet"
+        )
+      );
+    }
+    const responseData = {
+      videos,
+      totalVideos: totalVideosCount,
+      currentPage: page,
+      limitPerPage: limit,
+      totalPages,
+      hasNextpage,
+      hasPrevPage,
+    };
+
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          responseData,
+          "Channel videos fetched successfully."
+        )
+      );
+  } catch (error) {
+    console.log("Error fetching channel videos:", error);
+    if (error instanceof mongoose.Error.CastError) {
+      throw new ApiError(
+        400,
+        "Invalid ID format encountered while fetching channel videos"
+      );
+    }
+    throw new ApiError(
+      500,
+      error.message || "Failed to fetch channel videos due to server error"
+    );
+  }
 });
 
 export { getChannelStats, getChannelVideos };
