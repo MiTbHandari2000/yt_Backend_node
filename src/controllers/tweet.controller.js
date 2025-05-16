@@ -5,8 +5,8 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
+/-----TODO: create tweet-----------------/;
 const createTweet = asyncHandler(async (req, res) => {
-  //TODO: create tweet
   const { content } = req.body;
 
   if (!content?.trim()) {
@@ -38,8 +38,8 @@ const createTweet = asyncHandler(async (req, res) => {
     .json(new ApiResponse(201, tweet, "Tweet created successfully"));
 });
 
+/------TODO: get user tweets-----------------/;
 const getUserTweets = asyncHandler(async (req, res) => {
-  // TODO: get user tweets
   const { userId } = req.params;
   let { page = 1, limit = 10 } = req.query;
 
@@ -150,8 +150,8 @@ const getUserTweets = asyncHandler(async (req, res) => {
   }
 });
 
+/-------TODO: update tweet------------------/;
 const updateTweet = asyncHandler(async (req, res) => {
-  //TODO: update tweet
   const { tweetId } = req.params;
   const { content } = req.body;
   const userId = req.user?._id;
@@ -195,8 +195,8 @@ const updateTweet = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, updatedTweet, "tweet updated successfully"));
 });
 
+/------TODO: delete tweet-----------------/;
 const deleteTweet = asyncHandler(async (req, res) => {
-  //TODO: delete tweet
   const { tweetId } = req.params;
   const userId = req.user?._id;
 
