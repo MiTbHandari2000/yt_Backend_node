@@ -6,9 +6,13 @@ import { Comment } from "../models/comment.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import {
+  uploadOnCloudinary,
+  deleteFromCloudinary,
+} from "../utils/cloudinary.js";
 import fs from "fs";
 import { match } from "assert";
+import { parse } from "path";
 
 /-------TODO: get all videos based on query, sort, pagination--------/;
 const getAllVideos = asyncHandler(async (req, res) => {
@@ -138,6 +142,90 @@ const getAllVideos = asyncHandler(async (req, res) => {
 /-------TODO: get video, upload to cloudinary, create video--------/;
 const publishAVideo = asyncHandler(async (req, res) => {
   const { title, description } = req.body;
+  const userId = req.user?._id;
+
+  if (!userId) {
+    throw new ApiError(401, "User is not authenticated");
+  }
+
+  if (!title.trim()) {
+    throw new ApiError(400, "Title is required");
+  }
+  if (!description.trim()) {
+    throw new ApiError(400, "Description is required");
+  }
+  if (isNaN(parseFloat(duration)) || parseFloat(duration) <= 0) {
+    throw new ApiError(400, "Duration is required");
+  }
+
+  const videoFileLocalPath = req.file?.videoFile?.[0]?.path;
+  const thumbnailLocalPath = req.file?.thumbnail?.[0]?.path;
+
+  if (!videoFileLocalPath) {
+    throw new ApiError(400, "Video file is required");
+  }
+  if (!thumbnailLocalPath) {
+    throw new ApiError(400, "Thumbnail image is required");
+  }
+
+  let videoUploadResponse, thumbnailUploadResponse;
+
+  try {
+    videoUploadResponse = await uploadOnCloudinary(videoFileLocalPath);
+    thumbnailUploadResponse = await uploadOnCloudinary(thumbnailLocalPath);
+
+    if (!videoUploadResponse.url || videoUploadResponse) {
+      throw new ApiError(500, "Failed to upload video file to Cloudinary.");
+    }
+    if (!thumbnailUploadResponse.url || thumbnailUploadResponse) {
+      if (videoUploadResponse?.public_id) {
+        await deleteFromCloudinary(videoUploadResponse.public_id, "video");
+        throw new ApiError(
+          500,
+          "Failed to upload thumbnail image to Cloudinary."
+        );
+      }
+    }
+    const video = await Video.create({
+      title: title.trim(),
+      description: description.trim(),
+      videoFile: videoUploadResponse.url,
+      thumbnail: thumbnailUploadResponse.url,
+      duration: parseFloat(duration) || videoUploadResponse.duration || 0,
+      owner: userId,
+      isPublished: true,
+    });
+
+    if (!video) {
+      if (videoUploadResponse?.public_id) {
+        await deleteFromCloudinary(videoUploadResponse.public_id, "video");
+      }
+      if (thumbnailUploadResponse?.public_id) {
+        await deleteFromCloudinary(thumbnailUploadResponse.public_id, "image");
+      }
+      throw new ApiError(
+        500,
+        video,
+        " Failed to save video details to database."
+      );
+    }
+
+    return res
+      .status(201)
+      .json(new ApiResponse(201, video, "Video published successfully"));
+  } catch (error) {
+    if (videoFileLocalPath && fs.existsSync(videoFileLocalPath))
+      fs.unlinkSync(videoFileLocalPath);
+    if (thumbnailLocalPath && fs.existsSync(thumbnailLocalPath))
+      fs.unlinkSync(thumbnailLocalPath);
+
+    if (error instanceof ApiError) throw error;
+    console.error("Error publishing video:", error);
+    throw new ApiError(
+      500,
+      error.message || "An unexpected error occurred while publishing video."
+    );
+  }
 });
 
 const getVideoById = asyncHandler(async (req, res) => {
