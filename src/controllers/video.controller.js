@@ -228,23 +228,204 @@ const publishAVideo = asyncHandler(async (req, res) => {
   }
 });
 
+/--------------TODO: get video by id-------------------/;
 const getVideoById = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
-  //TODO: get video by id
+  const userId = req.user?._id;
+
+  if (!isValidObjectId(videoId)) {
+    throw new ApiError(400, "Invalid video id");
+  }
+
+  try {
+    const video = await Video.findById(
+      videoId,
+      { $inc: { views: 1 } },
+      { new: true }
+    ).populate("owner", "userName avatar fullName");
+
+    if (!video) {
+      throw new ApiError(404, "Video not found");
+    }
+
+    if (
+      !video.isPublished &&
+      (!userId || video.owner._id.toString() !== userId.toString())
+    ) {
+      throw new ApiError(
+        403,
+        "Video is not published and you dont have permission to view it"
+      );
+    }
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, video, "Video  details fetched successfully"));
+  } catch (error) {
+    console.error("Error fetching video:", error);
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(500, error.message || "failed to fetch video details");
+  }
 });
 
+/-------ODO: update video details like title, description, thumbnail--------/;
 const updateVideo = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
-  //TODO: update video details like title, description, thumbnail
+  const { title, description } = req.body;
+  const thumbnailLocalPath = req.file?.path;
+  const userId = req.user?._id;
+
+  if (!isValidObjectId(videoId)) {
+    throw new ApiError(400, "Invalid video id");
+  }
+  if (!userId) {
+    throw new ApiError(401, "User is not authenticated");
+  }
+
+  if (!title?.trim() && !description?.trim() && !thumbnailLocalPath) {
+    throw new ApiError(
+      400,
+      "Please provide title, description, or a new thumbnail to update."
+    );
+  }
+
+  const video = await Video.findById(videoId);
+  if (!video) {
+    if (thumbnailLocalPath && fs.existsSync(thumbnailLocalPath))
+      fs.unlinkSync(thumbnailLocalPath);
+    throw new ApiError(404, "Video not found");
+  }
+
+  if (video.owner.toString() !== userId.toString()) {
+    if (thumbnailLocalPath && fs.existsSync(thumbnailLocalPath))
+      fs.unlinkSync(thumbnailLocalPath);
+    {
+      throw new ApiError(403, "You are not authorized to update this video");
+    }
+  }
 });
 
+/-----TODO: delete video-----------------/;
 const deleteVideo = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
-  //TODO: delete video
+  const userId = req.user?._id;
+
+  if (!isValidObjectId(videoId)) {
+    throw new ApiError(400, "Invalid video id");
+  }
+  if (!userId) {
+    throw new ApiError(401, "User is not authenticated");
+  }
+
+  const video = await Video.findById(videoId);
+  if (!video) {
+    throw new ApiError(404, "Video not found");
+  }
+
+  if (video.owner.toString() !== userId.toString()) {
+    throw new ApiError(403, "You are not authorized to delete this video");
+  }
+
+  let videoFilePublicId = null;
+  if (video.videoFile) {
+    const urlParts = video.videoFile.split("/");
+    const publicIdWithExtension = urlParts.pop();
+    videoFilePublicId = publicIdWithExtension.substring(
+      0,
+      publicIdWithExtension.lastIndexOf(".")
+    );
+    const folderPath = urlParts
+      .slice(
+        urlParts.indexOf(process.env.CLOUDINARY_CLOUD_NAME) + 1,
+        urlParts.length - 1
+      )
+      .join("/");
+    if (folderPath) videoFilePublicId = `${folderPath}/${videoFilePublicId}`;
+  }
+
+  let thumbnailPublicId = null;
+  if (video.thumbnail) {
+    const urlParts = video.thumbnail.split("/");
+    const publicIdWithExtension = urlParts.pop();
+    thumbnailPublicId = publicIdWithExtension.substring(
+      0,
+      publicIdWithExtension.lastIndexOf(".")
+    );
+    const folderPath = urlParts
+      .slice(
+        urlParts.indexOf(process.env.CLOUDINARY_CLOUD_NAME) + 1,
+        urlParts.length - 1
+      )
+      .join("/");
+    if (folderPath) thumbnailPublicId = `${folderPath}/${thumbnailPublicId}`;
+  }
+  try {
+    const deletionResult = await Video.findByIdAndDelete(videoId);
+    if (!deletionResult) {
+      throw new ApiError(
+        404,
+        "Failed to delete video from database or it was already deleted."
+      );
+    }
+    if (videoFilePublicId) {
+      await deleteFromCloudinary(videoFilePublicId, "video");
+    }
+    if (thumbnailPublicId) {
+      await deleteFromCloudinary(thumbnailPublicId, "image");
+    }
+    await Like.deleteMany({ video: videoId });
+    await Comment.deleteMany({ video: videoId });
+
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          videoId: deletionResult._id,
+          message: "Video and associated assets deleted successfully.",
+        },
+        "Video deleted successfully."
+      )
+    );
+  } catch (error) {
+    console.error("Error deleting video:", error);
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(
+      500,
+      error.message || "An unexpected error occurred while deleting video."
+    );
+  }
 });
 
+/-----TODO: toggle publish status-----------------/;
 const togglePublishStatus = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
+  const userId = req.user?._id;
+  if (!isValidObjectId(videoId)) {
+    throw new ApiError(400, "Invalid video id");
+  }
+  if (!userId) {
+    throw new ApiError(401, "User is not authenticated");
+  }
+  const video = await Video.findById(videoId);
+  if (!video) {
+    throw new ApiError(404, "Video not found");
+  }
+  if (video.owner.toString() !== userId.toString()) {
+    throw new ApiError(403, "You are not authorized to update this video");
+  }
+
+  video.isPublished = !video.isPublished;
+  await video.save({ validateBeforeSave: false });
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        { videoId: video._id, isPublished: video.isPublished },
+        `Video ${video.isPublished ? "published" : "unpublished"} successfully.`
+      )
+    );
 });
 
 export {
