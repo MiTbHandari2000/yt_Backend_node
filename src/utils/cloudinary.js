@@ -1,5 +1,5 @@
 import { v2 as cloudinary } from "cloudinary";
-import { log } from "console";
+
 import fs from "fs";
 
 /-------CLOUDINARY CONFIGURATION-------/;
@@ -14,7 +14,7 @@ const uploadOnCloudinary = async (localFilePath) => {
   try {
     /-IF FILE PATH NOT FOUND-/;
     if (!localFilePath) return null;
-
+    console.warn("Cloudinary Upload: No local file path provided.");
     /-USES CLOUDINARY'S UPLOADER.UPLOAD METHOD TO UPLOAD THE FILE -/;
 
     const response = await cloudinary.uploader.upload(localFilePath, {

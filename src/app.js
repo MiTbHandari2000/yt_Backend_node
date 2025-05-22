@@ -1,4 +1,5 @@
 import express from "express";
+import ApiError from "./utils/ApiError.js";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 
@@ -47,5 +48,35 @@ app.use("/api/v1/comments", commentRouter);
 app.use("/api/v1/likes", likeRouter);
 app.use("/api/v1/playlist", playlistRouter);
 app.use("/api/v1/dashboard", dashboardRouter);
+
+app.use((err, req, res, next) => {
+  let statusCode = err.statusCode || 500;
+  let message = err.message || "Internal Server Error";
+  let success = false;
+  let errors = err.errors || []; // For multiple validation errors
+  let stack = err.stack;
+
+  if (err instanceof ApiError) {
+    // Make sure ApiError is imported if not already
+    statusCode = err.statusCode;
+    message = err.message;
+    success = err.success; // Should be false from ApiError
+    errors = err.errors;
+  } else {
+    console.error("UNHANDLED ERROR:", err);
+
+    if (process.env.NODE_ENV === "production") {
+      message = "An unexpected internal server error occurred.";
+      stack = null; // Don't send stack trace in production for non-ApiErrors
+    }
+  }
+
+  res.status(statusCode).json({
+    success,
+    message,
+    errors,
+    stack: process.env.NODE_ENV === "development" ? stack : undefined,
+  });
+});
 
 export { app };
