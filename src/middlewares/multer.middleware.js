@@ -15,6 +15,7 @@ const storage = multer.diskStorage({
   },
 });
 
+// Filter for IMAGES ONLY
 const imageFileFilter = (req, file, cb) => {
   const allowedMimes = ["image/jpeg", "image/png", "image/gif", "image/webp"];
   const allowedExts = [".jpg", ".jpeg", ".png", ".gif", ".webp"];
@@ -33,8 +34,42 @@ const limits = {
   fileSize: 1024 * 1024 * 5,
 };
 
+// Filter for VIDEOS ONLY
+const videoFileFilter = (req, file, cb) => {
+  const allowedMimes = [
+    "video/mp4",
+    "video/mpeg",
+    "video/quicktime",
+    "video/x-matroska",
+    "video/webm",
+  ]; // Add more video mimes
+  const allowedExts = [".mp4", ".mpeg", ".mov", ".mkv", ".webm"]; // Add more video extensions
+  const fileExt = path.extname(file.originalname).toLowerCase();
+
+  if (allowedMimes.includes(file.mimetype) && allowedExts.includes(fileExt)) {
+    cb(null, true);
+  } else {
+    const err = new multer.MulterError("LIMIT_UNEXPECTED_FILE", file.fieldname);
+    err.message = `Unsupported file type for video: ${file.mimetype || fileExt}. Only common video formats are allowed.`;
+    cb(err, false);
+  }
+};
+
+const commonLimits = {
+  fileSize: 1024 * 1024 * 50, // Example: 50MB limit, adjust for videos vs images
+};
+
 export const upload = multer({
   storage,
   fileFilter: imageFileFilter,
   limits: limits,
+});
+
+export const uploadVideo = multer({
+  storage: storage,
+  fileFilter: videoFileFilter, // Use video filter
+  limits: { fileSize: 1024 * 1024 * 200 }, // 200MB for videos, adjust
+});
+export const uploadGeneric = multer({
+  storage: storage,
 });

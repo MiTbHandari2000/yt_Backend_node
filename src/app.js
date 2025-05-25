@@ -1,5 +1,5 @@
 import express from "express";
-import ApiError from "./utils/ApiError.js";
+import { ApiError } from "./utils/ApiError.js";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 

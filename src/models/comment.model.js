@@ -1,7 +1,7 @@
 import mongoose, { Schema, Types } from "mongoose";
 import mongooseAggregatePaginate from "mongoose-paginate-v2";
 
-const commnetSchema = new Schema(
+const commentSchema = new Schema(
   {
     content: {
       type: String,
@@ -10,10 +10,13 @@ const commnetSchema = new Schema(
     video: {
       type: Schema.Types.ObjectId,
       ref: "Video",
+      required: true,
+      index: true,
     },
     owner: {
       type: Schema.Types.ObjectId,
       ref: "User",
+      required: true,
     },
   },
   {
@@ -21,6 +24,6 @@ const commnetSchema = new Schema(
   }
 );
 
-commnetSchema.plugin(mongooseAggregatePaginate);
+commentSchema.plugin(mongooseAggregatePaginate);
 
-export const Comment = mongoose.model("Comment", commnetSchema);
+export const Comment = mongoose.model("Comment", commentSchema);
