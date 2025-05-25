@@ -4,7 +4,7 @@ import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { uploadOnCloudinary } from "../utils/cloudinary.js";
+
 import {
   uploadOnCloudinary,
   deleteFromCloudinary,
@@ -14,8 +14,61 @@ import fs from "fs";
 /-------TODO: get all videos based on query, sort, pagination--------/;
 
 const getAllVideos = asyncHandler(async (req, res) => {
-  const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.query;
-  //TODO: get all videos based on query, sort, pagination
+  const { query, sortBy, sortType, userId } = req.query;
+  let { page = 1, limit = 10 } = req.query;
+
+  console.log(
+    "Received query param- page:",
+    page,
+    "limit:",
+    limit,
+    "query:",
+    query,
+    "sortBy:",
+    sortBy,
+    "sortType",
+    sortType,
+    "userId:",
+    userId
+  );
+
+  page = page ? parseInt(page, 10) : 1;
+  limit = limit ? parseInt(limit, 10) : 10;
+
+  if (isNaN(page) || page < 1) {
+    console.log(
+      `Invalid page value received:${req.query.page}, defaulting to 1.`
+    );
+    page = 1;
+  }
+  if (isNaN(limit) || limit < 1) {
+    console.log(
+      `Invalid limit value received:${req.query.limit}, defaulting to 10.`
+    );
+    limit = 10;
+  }
+  if (limit > 50) {
+    console.log(`limit value ${limit} exceeds cap of 50  `);
+    limit = 50;
+  }
+
+  console.log(`Parsed pagination: page=${page}, limit=${limit}`);
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        message: "getAllVideos parameters received.",
+        parsedPage: page,
+        parsedLimit: limit,
+        query,
+        sortBy,
+        sortType,
+        userId,
+      },
+      "Parameters processed successfully (Step 1)"
+    )
+  );
 });
 
 /-------TODO get video, upload to cloudinary, create video--------/;

@@ -1,6 +1,6 @@
 import mongoose, { Schema, Types } from "mongoose";
-import mongooseAggregatePaginate from "mongoose-paginate-v2";
 
+import mongooseAggregatePaginate from "mongoose-aggregate-paginate-v2";
 const tweetSchema = new Schema(
   {
     content: {
