@@ -1,147 +1,28 @@
 import mongoose, { isValidObjectId } from "mongoose";
 import { Video } from "../models/video.model.js";
 import { User } from "../models/user.model.js";
-import { Like } from "../models/like.model.js";
-import { Comment } from "../models/comment.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import {
   uploadOnCloudinary,
   deleteFromCloudinary,
 } from "../utils/cloudinary.js";
 import fs from "fs";
-import { match } from "assert";
-import { parse } from "path";
 
 /-------TODO: get all videos based on query, sort, pagination--------/;
+
 const getAllVideos = asyncHandler(async (req, res) => {
   const { page = 1, limit = 10, query, sortBy, sortType, userId } = req.query;
-
-  page = parseInt(page, 10);
-  limit = parseInt(limit, 10);
-  if (isNaN(page) || page < 1) page = 1;
-  if (isNaN(limit) || limit < 1) limit = 10;
-  if (limit > 50) limit = 50;
-
-  const matchCondition = {};
-
-  if (query) {
-    matchCondition.$or = [
-      { title: { $regex: query, $options: "i" } },
-      { description: { $regex: query, $options: "i" } },
-    ];
-  }
-  if (userId) {
-    if (!isValidObjectId(userId)) {
-      throw new ApiError(400, "Invalid user id");
-    }
-    matchCondition.owner = new mongoose.Types.ObjectId(userId);
-  }
-  matchCondition.isPublished = true;
-
-  const sortConditions = {};
-  if (sortBy && sortType) {
-    const validSortFields = ["createdAt", "duration", "title", "views"];
-    if (!validSortFields.includes(sortBy)) {
-      sortConditions[sortBy] = sortType === "desc" ? -1 : 1;
-    } else {
-      sortConditions.createdAt = -1;
-    }
-  } else {
-    sortConditions.createdAt = -1;
-  }
-
-  try {
-    const videoAggregate = Video.aggregate([
-      { $match: matchCondition },
-      {
-        $lookup: {
-          from: "users",
-          localField: "owner",
-          foreignField: "_id",
-          as: "ownerDetails",
-          pipeline: [
-            {
-              $project: {
-                fullName: 1,
-                userName: 1,
-                avatar: 1,
-              },
-            },
-          ],
-        },
-      },
-
-      {
-        $unwind: "ownerDetails",
-      },
-      {
-        $addFields: {
-          owner: "ownerDetails",
-        },
-      },
-
-      {
-        $sort: sortConditions,
-      },
-    ]);
-
-    const options = {
-      page,
-      limit,
-      customLabels: {
-        totalDocs: "totalVideos",
-        docs: "videos",
-      },
-    };
-    const result = await Video.aggregatePaginate(videoAggregate, options);
-    if (
-      !result ||
-      (result.docs.length === 0 &&
-        result.totalDocs > 0 &&
-        page > result.totalPages)
-    ) {
-      // Requested page is out of bounds
-      return res.status(200).json(
-        new ApiResponse(
-          200,
-          {
-            videos: [],
-            ...options,
-            totalDocs: result.totalDocs,
-            totalPages: result.totalPages,
-          },
-          "No videos found on this page."
-        )
-      );
-    }
-    if (!result || result.docs.length === 0) {
-      return res
-        .status(200)
-        .json(
-          new ApiResponse(
-            200,
-            { videos: [], ...options, totalDocs: 0, totalPages: 0 },
-            "No videos found matching your criteria."
-          )
-        );
-    }
-
-    return res
-      .status(200)
-      .json(new ApiResponse(200, result, "Videos fetched successfully"));
-  } catch (error) {
-    console.error("Error fetching videos:", error);
-    return res
-      .status(500)
-      .json(new ApiResponse(500, error.message || "Internal server error"));
-  }
+  //TODO: get all videos based on query, sort, pagination
 });
 
-/-------TODO: get video, upload to cloudinary, create video--------/;
+/-------TODO get video, upload to cloudinary, create video--------/;
+
 const publishAVideo = asyncHandler(async (req, res) => {
-  const { title, description } = req.body;
+  // 1. Destructure and Validate Text Inputs & User Auth
+  const { title, description, duration } = req.body;
   const userId = req.user?._id;
 
   if (!userId) {
@@ -158,34 +39,173 @@ const publishAVideo = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Duration is required");
   }
 
-  const videoFileLocalPath = req.file?.videoFile?.[0]?.path;
-  const thumbnailLocalPath = req.file?.thumbnail?.[0]?.path;
+  const videoFileObject = req.files?.videoFile?.[0];
+  const thumbnailFileObject = req.files?.thumbnail?.[0];
+
+  const videoFileLocalPath = videoFileObject?.path;
+  const thumbnailLocalPath = thumbnailFileObject?.path;
 
   if (!videoFileLocalPath) {
+    if (thumbnailLocalPath && fs.existsSync(thumbnailLocalPath)) {
+      try {
+        fs.unlinkSync(thumbnailLocalPath);
+      } catch (e) {
+        console.error(
+          "Error cleaning up orphaned thumbnail (no video file):",
+          e
+        );
+      }
+    }
+
     throw new ApiError(400, "Video file is required");
   }
   if (!thumbnailLocalPath) {
+    if (videoFileLocalPath && fs.existsSync(videoFileLocalPath)) {
+      try {
+        fs.unlinkSync(videoFileLocalPath);
+      } catch (e) {
+        console.error(
+          "Error cleaning up orphaned video file (no thumbnail):",
+          e
+        );
+      }
+    }
+
     throw new ApiError(400, "Thumbnail image is required");
+  }
+
+  /- Validate File Types (MIME types) - Critical since using generic Multer upload-/;
+  const allowedVideoMimes = [
+    "video/mp4",
+    "video/mpeg",
+    "video/webm",
+    "video/avi",
+  ]; // Add more as needed
+  const allowedImageMimes = [
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+  ];
+
+  if (
+    !videoFileObject ||
+    !allowedVideoMimes.includes(videoFileObject.mimetype)
+  ) {
+    // Cleanup both local files if video type is invalid
+    if (videoFileLocalPath && fs.existsSync(videoFileLocalPath))
+      try {
+        fs.unlinkSync(videoFileLocalPath);
+      } catch (e) {
+        console.error("Cleanup error VT1:", e);
+      }
+    if (thumbnailLocalPath && fs.existsSync(thumbnailLocalPath))
+      try {
+        fs.unlinkSync(thumbnailLocalPath);
+      } catch (e) {
+        console.error("Cleanup error VT2:", e);
+      }
+    throw new ApiError(
+      400,
+      `Invalid video file type: ${videoFileObject?.mimetype}. Supported types include mp4, mov, etc.`
+    );
+  }
+
+  if (
+    !thumbnailFileObject ||
+    !allowedImageMimes.includes(thumbnailFileObject.mimetype)
+  ) {
+    // Cleanup both local files if thumbnail type is invalid
+    if (videoFileLocalPath && fs.existsSync(videoFileLocalPath))
+      try {
+        fs.unlinkSync(videoFileLocalPath);
+      } catch (e) {
+        console.error("Cleanup error TT1:", e);
+      }
+    if (thumbnailLocalPath && fs.existsSync(thumbnailLocalPath))
+      try {
+        fs.unlinkSync(thumbnailLocalPath);
+      } catch (e) {
+        console.error("Cleanup error TT2:", e);
+      }
+    throw new ApiError(
+      400,
+      `Invalid thumbnail file type: ${thumbnailFileObject?.mimetype}. Supported types: jpg, png, etc.`
+    );
   }
 
   let videoUploadResponse, thumbnailUploadResponse;
 
   try {
+    //5
+    console.log("Attempting to upload video file:", videoFileLocalPath);
     videoUploadResponse = await uploadOnCloudinary(videoFileLocalPath);
+
+    console.log("Attempting to upload thumbnail file:", thumbnailLocalPath);
     thumbnailUploadResponse = await uploadOnCloudinary(thumbnailLocalPath);
 
-    if (!videoUploadResponse.url || videoUploadResponse) {
-      throw new ApiError(500, "Failed to upload video file to Cloudinary.");
-    }
-    if (!thumbnailUploadResponse.url || thumbnailUploadResponse) {
-      if (videoUploadResponse?.public_id) {
-        await deleteFromCloudinary(videoUploadResponse.public_id, "video");
-        throw new ApiError(
-          500,
-          "Failed to upload thumbnail image to Cloudinary."
+    //6
+
+    if (!videoUploadResponse || !videoUploadResponse.url) {
+      // If video upload failed, but thumbnail might have succeeded before this check
+      if (thumbnailUploadResponse?.public_id) {
+        console.log(
+          "Video upload failed, attempting to delete already uploaded thumbnail from Cloudinary:",
+          thumbnailUploadResponse.public_id
         );
+        try {
+          await deleteFromCloudinary(
+            thumbnailUploadResponse.public_id,
+            "image"
+          );
+        } catch (e) {
+          console.error("Cloudinary cleanup error (thumbnail):", e);
+        }
       }
+      throw new ApiError(
+        500,
+        "Failed to upload video file to Cloudinary or response was invalid."
+      );
     }
+
+    if (!thumbnailUploadResponse || !thumbnailUploadResponse.url) {
+      // If thumbnail upload failed, but video upload succeeded
+      if (videoUploadResponse?.public_id) {
+        console.log(
+          "Thumbnail upload failed, attempting to delete already uploaded video from Cloudinary:",
+          videoUploadResponse.public_id
+        );
+        try {
+          await deleteFromCloudinary(videoUploadResponse.public_id, "video");
+        } catch (e) {
+          console.error("Cloudinary cleanup error (video):", e);
+        }
+      }
+      throw new ApiError(
+        500,
+        "Failed to upload thumbnail image to Cloudinary or response was invalid."
+      );
+    }
+
+    if (!thumbnailUploadResponse || !thumbnailUploadResponse.url) {
+      // If thumbnail upload failed, but video upload succeeded
+      if (videoUploadResponse?.public_id) {
+        console.log(
+          "Thumbnail upload failed, attempting to delete already uploaded video from Cloudinary:",
+          videoUploadResponse.public_id
+        );
+        try {
+          await deleteFromCloudinary(videoUploadResponse.public_id, "video");
+        } catch (e) {
+          console.error("Cloudinary cleanup error (video):", e);
+        }
+      }
+      throw new ApiError(
+        500,
+        "Failed to upload thumbnail image to Cloudinary or response was invalid."
+      );
+    }
+    //7
     const video = await Video.create({
       title: title.trim(),
       description: description.trim(),
@@ -197,16 +217,30 @@ const publishAVideo = asyncHandler(async (req, res) => {
     });
 
     if (!video) {
-      if (videoUploadResponse?.public_id) {
-        await deleteFromCloudinary(videoUploadResponse.public_id, "video");
-      }
-      if (thumbnailUploadResponse?.public_id) {
-        await deleteFromCloudinary(thumbnailUploadResponse.public_id, "image");
-      }
+      console.log(
+        "DB video creation failed. Attempting to delete assets from Cloudinary."
+      );
+      if (videoUploadResponse?.public_id)
+        try {
+          await deleteFromCloudinary(videoUploadResponse.public_id, "video");
+        } catch (e) {
+          console.error("Cloudinary cleanup error (video after DB fail):", e);
+        }
+      if (thumbnailUploadResponse?.public_id)
+        try {
+          await deleteFromCloudinary(
+            thumbnailUploadResponse.public_id,
+            "image"
+          );
+        } catch (e) {
+          console.error(
+            "Cloudinary cleanup error (thumbnail after DB fail):",
+            e
+          );
+        }
       throw new ApiError(
         500,
-        video,
-        " Failed to save video details to database."
+        "Failed to save video details to the database after successful uploads."
       );
     }
 
@@ -214,16 +248,29 @@ const publishAVideo = asyncHandler(async (req, res) => {
       .status(201)
       .json(new ApiResponse(201, video, "Video published successfully"));
   } catch (error) {
-    if (videoFileLocalPath && fs.existsSync(videoFileLocalPath))
-      fs.unlinkSync(videoFileLocalPath);
-    if (thumbnailLocalPath && fs.existsSync(thumbnailLocalPath))
-      fs.unlinkSync(thumbnailLocalPath);
-
+    if (!(error instanceof ApiError)) {
+      // Only log if it's not one we've explicitly thrown
+      console.error("Unexpected error in publishAVideo catch block:", error);
+    }
+    if (videoFileLocalPath && fs.existsSync(videoFileLocalPath)) {
+      try {
+        fs.unlinkSync(videoFileLocalPath);
+      } catch (e) {
+        console.error("Final catch: Error unlinking video temp file:", e);
+      }
+    }
+    if (thumbnailLocalPath && fs.existsSync(thumbnailLocalPath)) {
+      try {
+        fs.unlinkSync(thumbnailLocalPath);
+      } catch (e) {
+        console.error("Final catch: Error unlinking thumbnail temp file:", e);
+      }
+    }
     if (error instanceof ApiError) throw error;
-    console.error("Error publishing video:", error);
     throw new ApiError(
       500,
-      error.message || "An unexpected error occurred while publishing video."
+      error.message ||
+        "An unexpected error occurred while publishing the video."
     );
   }
 });
