@@ -10,6 +10,7 @@ import {
   deleteFromCloudinary,
 } from "../utils/cloudinary.js";
 import fs from "fs";
+import { title } from "process";
 
 /-------TODO: get all videos based on query, sort, pagination--------/;
 
@@ -17,56 +18,80 @@ const getAllVideos = asyncHandler(async (req, res) => {
   const { query, sortBy, sortType, userId } = req.query;
   let { page = 1, limit = 10 } = req.query;
 
-  console.log(
-    "Received query param- page:",
-    page,
-    "limit:",
-    limit,
-    "query:",
-    query,
-    "sortBy:",
-    sortBy,
-    "sortType",
-    sortType,
-    "userId:",
-    userId
-  );
+  // console.log("Received query param- page:",page,"limit:",limit,"query:",query,"sortBy:",sortBy,"sortType",sortType,"userId:",userId);
 
   page = page ? parseInt(page, 10) : 1;
   limit = limit ? parseInt(limit, 10) : 10;
 
   if (isNaN(page) || page < 1) {
-    console.log(
-      `Invalid page value received:${req.query.page}, defaulting to 1.`
-    );
+    // console.log(`Invalid page value received:${req.query.page}, defaulting to 1.`);
     page = 1;
   }
   if (isNaN(limit) || limit < 1) {
-    console.log(
-      `Invalid limit value received:${req.query.limit}, defaulting to 10.`
-    );
+    // console.log(`Invalid limit value received:${req.query.limit}, defaulting to 10.`);
     limit = 10;
   }
   if (limit > 50) {
-    console.log(`limit value ${limit} exceeds cap of 50  `);
+    // console.log(`limit value ${limit} exceeds cap of 50  `);
     limit = 50;
   }
 
-  console.log(`Parsed pagination: page=${page}, limit=${limit}`);
+  //console.log(`Parsed pagination: page=${page}, limit=${limit}`);
+
+  //step:2
+  const matchCondition = {};
+  if (query?.trim()) {
+    matchCondition.$or = [
+      { title: { $regex: query.trim(), $options: "i" } },
+      { description: { $regex: query.trim(), $options: "i" } },
+    ];
+    // console.log(`text query added to matchcondition for :"${query.trim()}"`);
+  }
+
+  if (userId) {
+    if (!isValidObjectId(userId)) {
+      throw new ApiError(400, "ivalid user id format for filtering. ");
+    }
+    matchCondition.owner = new mongoose.Types.ObjectId(userId);
+    //console.log(`user id filter is added to matchcondition for owner:"${userId}" `);
+  }
+
+  matchCondition.isPublished = true;
+  // console.log("default filter added :isPublished=true");
+
+  //console.log("constructed $match stage:",JSON.stringify(matchCondition, null, 2));
+
+  //step-------3--------
+  const sortCondition = {};
+
+  const validSortFields = ["views", "duration", "createdAt", "title"];
+
+  if (sortBy && validSortFields.includes(sortBy)) {
+    sortCondition[sortBy] = sortType?.toLowerCase() === "desc" ? -1 : 1;
+    console.log(
+      `sorting applied: by  "${sortBy}",order "${sortType?.toLowerCase() === "desc" ? "desc" : "asc"}"`
+    );
+  } else {
+    sortCondition.createdAt = -1;
+    console.log(`default sorting  applied:by "createdAt",order "desc`);
+  }
+
+  console.log(
+    "Constructed $sort stage:",
+    JSON.stringify(sortCondition, null, 2)
+  );
 
   return res.status(200).json(
     new ApiResponse(
       200,
       {
-        message: "getAllVideos parameters received.",
+        message: "getAllVideos $sort stage constructed.",
         parsedPage: page,
         parsedLimit: limit,
-        query,
-        sortBy,
-        sortType,
-        userId,
+        filtersApplied: matchCondition,
+        sortApplied: sortCondition, // Send back the constructed sortCondition
       },
-      "Parameters processed successfully (Step 1)"
+      "$sort stage processed successfully (Step 3)"
     )
   );
 });
