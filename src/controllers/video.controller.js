@@ -226,7 +226,7 @@ const getAllVideos = asyncHandler(async (req, res) => {
   }
 });
 
-/-------TODO get video, upload to cloudinary, create video--------/;
+/-------TODO publish video, upload to cloudinary, create video--------/;
 
 const publishAVideo = asyncHandler(async (req, res) => {
   // 1. Destructure and Validate Text Inputs & User Auth

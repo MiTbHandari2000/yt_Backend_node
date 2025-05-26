@@ -8,11 +8,7 @@ import {
   updateVideo,
 } from "../controllers/video.controller.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
-import {
-  upload,
-  uploadVideo,
-  uploadGeneric,
-} from "../middlewares/multer.middleware.js";
+import { upload, uploadGeneric } from "../middlewares/multer.middleware.js";
 
 const router = Router();
 router.use(verifyJWT); // Apply verifyJWT middleware to all routes in this file
@@ -31,23 +27,6 @@ router
         maxCount: 1,
       },
     ]),
-    (req, res, next) => {
-      // Temporary debugging middleware
-      console.log(
-        "IN ROUTE - AFTER MULTER - req.files:",
-        JSON.stringify(req.files, null, 2)
-      );
-      console.log(
-        "IN ROUTE - AFTER MULTER - req.body:",
-        JSON.stringify(req.body, null, 2)
-      );
-      if (!req.files || !req.files.videoFile) {
-        console.error(
-          "IN ROUTE - Video file still not found after Multer in route!"
-        );
-      }
-      next();
-    },
 
     publishAVideo
   );
