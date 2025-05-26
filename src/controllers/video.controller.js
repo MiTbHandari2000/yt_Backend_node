@@ -10,7 +10,6 @@ import {
   deleteFromCloudinary,
 } from "../utils/cloudinary.js";
 import fs from "fs";
-import { title } from "process";
 
 /-------TODO: get all videos based on query, sort, pagination--------/;
 
@@ -59,8 +58,6 @@ const getAllVideos = asyncHandler(async (req, res) => {
   matchCondition.isPublished = true;
   // console.log("default filter added :isPublished=true");
 
-  //console.log("constructed $match stage:",JSON.stringify(matchCondition, null, 2));
-
   //step-------3--------
   const sortCondition = {};
 
@@ -68,32 +65,165 @@ const getAllVideos = asyncHandler(async (req, res) => {
 
   if (sortBy && validSortFields.includes(sortBy)) {
     sortCondition[sortBy] = sortType?.toLowerCase() === "desc" ? -1 : 1;
-    console.log(
+    /* console.log(
       `sorting applied: by  "${sortBy}",order "${sortType?.toLowerCase() === "desc" ? "desc" : "asc"}"`
-    );
+    );*/
   } else {
     sortCondition.createdAt = -1;
-    console.log(`default sorting  applied:by "createdAt",order "desc`);
+    // console.log(`default sorting  applied:by "createdAt",order "desc`);
   }
 
+  //step 4 & 5
+  const aggregationPipeline = [
+    // Stage 1: Initial filtering based on query, userId, isPublished
+    {
+      $match: matchCondition,
+    },
+    // Stage 2: Lookup owner information from the "users" collection
+    {
+      $lookup: {
+        from: "users",
+        localField: "owner",
+        foreignField: "_id",
+        as: "ownerDetailsArray",
+        pipeline: [
+          {
+            $project: {
+              _id: 1,
+              userName: 1,
+              avatar: 1,
+              fullName: 1,
+            },
+          },
+        ],
+      },
+    },
+    // Stage 3: Deconstruct the ownerDetailsArray
+    {
+      $unwind: {
+        path: "$ownerDetailsArray",
+        preserveNullAndEmptyArrays: true,
+      },
+    },
+
+    // Stage 4: Replace the original 'owner' ObjectId with the fetched owner object (or null)
+    {
+      $addFields: {
+        owner: "$ownerDetailsArray",
+      },
+    },
+    // Stage 5: Remove the temporary 'ownerDetailsArray' field as it's now redundant
+    {
+      $project: {
+        ownerDetailsArray: 0,
+      },
+    },
+
+    // Sorting the results
+    {
+      $sort: sortCondition,
+    },
+  ];
+  //console.log("Full Aggregation Pipeline to be used:",JSON.stringify(aggregationPipeline, null, 2));
+
+  //step 6 & 7
+  const paginationOptions = {
+    page: page,
+    limit: limit,
+    customLabels: {
+      totalDocs: "totalVideos",
+      docs: "videos",
+    },
+    lean: true,
+  };
+
   console.log(
-    "Constructed $sort stage:",
-    JSON.stringify(sortCondition, null, 2)
+    "PaginationOption for Video.paginate:",
+    JSON.stringify(paginationOptions, null, 2)
   );
 
-  return res.status(200).json(
-    new ApiResponse(
-      200,
-      {
-        message: "getAllVideos $sort stage constructed.",
-        parsedPage: page,
-        parsedLimit: limit,
-        filtersApplied: matchCondition,
-        sortApplied: sortCondition, // Send back the constructed sortCondition
-      },
-      "$sort stage processed successfully (Step 3)"
-    )
-  );
+  try {
+    const videoAggregateObject = Video.aggregate(aggregationPipeline);
+    //console.log("Type of Video.paginate:", typeof Video.paginate);
+    if (
+      videoAggregateObject &&
+      typeof videoAggregateObject.pipeline === "function"
+    ) {
+      console.log(
+        "Pipeline of AGGREGATE OBJECT passed to paginate:",
+        JSON.stringify(videoAggregateObject.pipeline(), null, 2)
+      );
+    } else {
+      console.error(
+        "videoAggregateObject is not a valid  Mongoose aggregate instance!"
+      );
+      throw new ApiError(500, "Failed to create aggregation query");
+    }
+
+    const result = await Video.aggregatePaginate(
+      videoAggregateObject,
+      paginationOptions
+    );
+    console.log(
+      "Result from Video.aggregatePaginate:",
+      JSON.stringify(result, null, 2)
+    );
+
+    if (
+      !result ||
+      typeof result !== "object" ||
+      !result.videos ||
+      !Array.isArray(result.videos)
+    ) {
+      console.error(
+        "Video.paginate returned an unexpected result structure.Actual result",
+        result
+      );
+      throw new ApiError(
+        500,
+        "Failed to fetch videos: pagination plugin returned an invalid result structure"
+      );
+    }
+    if (result.videos.length === 0) {
+      if (page > 1 && result.totalVideos > 0 && page > result.totalPage) {
+        return res
+          .status(200)
+          .json(
+            new ApiResponse(
+              200,
+              { ...result, videos: [] },
+              "No videos found on this page "
+            )
+          );
+      }
+      return res.status(200).json(
+        new ApiResponse(
+          200,
+          {
+            videos: [],
+            totalVideos: 0,
+            page: 1,
+            limit,
+            totalPage: 0,
+            hasNextPage: false,
+            hasPrevPage: false,
+          },
+          "No videos found matching your criteria"
+        )
+      );
+    }
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, result, "Video fetched successfully "));
+  } catch (error) {
+    console.error("Error during Video.paginate or result handling :", error);
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(
+      500,
+      error.message || "failed to fetch video due to an internal server error"
+    );
+  }
 });
 
 /-------TODO get video, upload to cloudinary, create video--------/;
