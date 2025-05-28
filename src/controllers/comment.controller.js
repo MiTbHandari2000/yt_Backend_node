@@ -1,5 +1,6 @@
 import mongoose, { Aggregate } from "mongoose";
 import { Comment } from "../models/comment.model.js";
+import { Like } from "../models/like.model.js";
 import { Video } from "../models/video.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
@@ -8,8 +9,10 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 /-------TODO: get all comments for a video-----------------/;
 const getVideoComments = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
-  const { page = 1, limit = 10 } = req.query;
+  let { page = 1, limit = 10 } = req.query;
 
+  page = page ? parseInt(page, 10) : 1;
+  limit = limit ? parseInt(limit, 10) : 10;
   if (isNaN(page) || page < 1) page = 1;
   if (isNaN(limit) || limit < 1) limit = 10;
   if (limit > 50) limit = 50;
@@ -46,6 +49,7 @@ const getVideoComments = asyncHandler(async (req, res) => {
         ],
       },
     },
+
     {
       $addFields: {
         owner: { $first: "$ownerDetails" },
@@ -70,14 +74,38 @@ const getVideoComments = asyncHandler(async (req, res) => {
       totalDocs: "totalComments",
       docs: "comments",
     },
+    lean: true,
   };
 
   try {
     const result = await Comment.aggregatePaginate(commentsAggregate, options);
     if (
       !result ||
-      (result.comments.length === 0 && result.totalComments === 0 && page > 1)
+      typeof result !== "object" ||
+      !result.comments ||
+      !Array.isArray(result.comments)
     ) {
+      console.error(
+        "Comment.paginate returned an unexpected result structure:",
+        result
+      );
+      throw new ApiError(
+        500,
+        "Failed to fetch comments: invalid pagination result structure."
+      );
+    }
+    if (result.comments.length === 0) {
+      if (page > 1 && result.totalComments > 0 && page > result.totalPages) {
+        return res
+          .status(200)
+          .json(
+            new ApiResponse(
+              200,
+              { ...result, comments: [] },
+              "No comments found on this page."
+            )
+          );
+      }
       return res.status(200).json(
         new ApiResponse(
           200,
@@ -141,7 +169,7 @@ const addComment = asyncHandler(async (req, res) => {
     .status(201)
     .json(
       new ApiResponse(
-        200,
+        201,
         populatedComment || comment,
         "Comment added successfully"
       )
@@ -175,24 +203,23 @@ const updateComment = asyncHandler(async (req, res) => {
   }
 
   comment.content = content;
-  const updatedCommnetInstance = await comment.save({
+  const updatedCommentInstance = await comment.save({
     validateBeforeSave: true,
   });
 
-  if (!updatedCommnetInstance) {
+  if (!updatedCommentInstance) {
     throw new ApiError(500, "Failed to update comment due to server error");
   }
 
-  const populatedComment = await Comment.findById(comment._id).populate(
-    "owner",
-    "userName avatar"
-  );
+  const populatedComment = await Comment.findById(
+    updatedCommentInstance._id
+  ).populate("owner", "userName avatar");
   return res
     .status(200)
     .json(
       new ApiResponse(
         200,
-        populatedComment || updatedCommnetInstance,
+        populatedComment || updatedCommentInstance,
         "Comment updated successfully"
       )
     );
@@ -220,13 +247,21 @@ const deleteComment = asyncHandler(async (req, res) => {
     throw new ApiError(403, "You are not authorized to delete this comment");
   }
 
-  const deletetionResult = await Comment.findByIdAndDelete(commentId);
-  if (!deletetionResult) {
+  const deletionResult = await Comment.findByIdAndDelete(commentId);
+  if (!deletionResult) {
     throw new ApiError(500, "Failed to delete comment due to server error");
   }
+  await Like.deleteMany({ comment: commentId });
+
   return res
     .status(200)
-    .json(new ApiResponse(200, {}, "Comment deleted successfully"));
+    .json(
+      new ApiResponse(
+        200,
+        { deletedCommentId: deletionResult._id },
+        "Comment deleted successfully"
+      )
+    );
 });
 
 export { getVideoComments, addComment, updateComment, deleteComment };
