@@ -1,6 +1,8 @@
 import mongoose, { isValidObjectId } from "mongoose";
 import { Like } from "../models/like.model.js";
 import { Video } from "../models/video.model.js";
+import { Comment } from "../models/comment.model.js";
+import { Tweet } from "../models/tweet.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -99,6 +101,9 @@ const toggleCommentLike = asyncHandler(async (req, res) => {
       responseMessage = "Comment unliked successfully";
       liked = false;
       likeData = { commentId, likedBy: userId, liked: false };
+      return res
+        .status(statusCode)
+        .json(new ApiResponse(statusCode, likeData, responseMessage));
     } else {
       const newLike = await Like.create(likeCondition);
 
@@ -113,7 +118,7 @@ const toggleCommentLike = asyncHandler(async (req, res) => {
       };
       return res
         .status(statusCode)
-        .json(new ApiResponse(statusCode, responseMessage, likeData));
+        .json(new ApiResponse(statusCode, likeData, responseMessage));
     }
   } catch (error) {
     console.error("Error toggling comment like:", error);
@@ -158,6 +163,9 @@ const toggleTweetLike = asyncHandler(async (req, res) => {
       responseMessage = "Tweet unliked successfully";
       liked = false;
       likeData = { tweetId, likedBy: userId, liked: false };
+      return res
+        .status(statusCode)
+        .json(new ApiResponse(statusCode, likeData, responseMessage));
     } else {
       const newLike = await Like.create(likeCondition);
       responseMessage = "Tweet liked successfully";
@@ -171,7 +179,7 @@ const toggleTweetLike = asyncHandler(async (req, res) => {
       };
       return res
         .status(statusCode)
-        .json(new ApiResponse(statusCode, responseMessage, likeData));
+        .json(new ApiResponse(statusCode, likeData, responseMessage));
     }
   } catch (error) {
     console.error("Error toggling tweet like:", error);
