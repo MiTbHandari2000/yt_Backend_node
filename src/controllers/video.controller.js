@@ -1,4 +1,6 @@
 import mongoose, { isValidObjectId } from "mongoose";
+import { Like } from "../models/like.model.js";
+import { Comment } from "../models/comment.model.js";
 import { Video } from "../models/video.model.js";
 import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError.js";
@@ -418,7 +420,11 @@ const publishAVideo = asyncHandler(async (req, res) => {
       title: title.trim(),
       description: description.trim(),
       videoFile: videoUploadResponse.url,
+      videoFilePublicId: videoUploadResponse.public_id,
+      videoFileResourceType: videoUploadResponse.resource_type,
       thumbnail: thumbnailUploadResponse.url,
+      thumbnailPublicId: thumbnailUploadResponse.public_id,
+      thumbnailResourceType: thumbnailUploadResponse.resource_type,
       duration: parseFloat(duration) || videoUploadResponse.duration || 0,
       owner: userId,
       isPublished: true,
@@ -493,7 +499,7 @@ const getVideoById = asyncHandler(async (req, res) => {
   }
 
   try {
-    const video = await Video.findById(
+    const video = await Video.findByIdAndUpdate(
       videoId,
       { $inc: { views: 1 } },
       { new: true }
@@ -523,7 +529,7 @@ const getVideoById = asyncHandler(async (req, res) => {
   }
 });
 
-/-------ODO: update video details like title, description, thumbnail--------/;
+/-------TODO: update video details like title, description, thumbnail--------/;
 const updateVideo = asyncHandler(async (req, res) => {
   const { videoId } = req.params;
   const { title, description } = req.body;
@@ -546,18 +552,153 @@ const updateVideo = asyncHandler(async (req, res) => {
 
   const video = await Video.findById(videoId);
   if (!video) {
-    if (thumbnailLocalPath && fs.existsSync(thumbnailLocalPath))
-      fs.unlinkSync(thumbnailLocalPath);
+    if (thumbnailLocalPath && fs.existsSync(thumbnailLocalPath)) {
+      try {
+        fs.unlinkSync(thumbnailLocalPath);
+      } catch (error) {
+        console.error("Error unlinking thumbnail file:", error);
+      }
+    }
     throw new ApiError(404, "Video not found");
   }
 
   if (video.owner.toString() !== userId.toString()) {
-    if (thumbnailLocalPath && fs.existsSync(thumbnailLocalPath))
-      fs.unlinkSync(thumbnailLocalPath);
-    {
-      throw new ApiError(403, "You are not authorized to update this video");
+    if (thumbnailLocalPath && fs.existsSync(thumbnailLocalPath)) {
+      try {
+        fs.unlinkSync(thumbnailLocalPath);
+      } catch (error) {
+        console.error("Error unlinking temp thumbnail (unauthorized):", error);
+      }
+    }
+    throw new ApiError(403, "You are not authorized to update this video");
+  }
+
+  const updateData = {};
+  if (title?.trim() && video.title !== title.trim()) {
+    updateData.title = title.trim();
+  }
+
+  if (description?.trim() && video.description !== description.trim()) {
+    updateData.description = description.trim();
+  }
+
+  let oldThumbnailPublicId = null;
+  let newThumbnailCloudinaryResponse = null;
+
+  if (thumbnailLocalPath) {
+    console.log(
+      "New thumbnail provided, processing upload...",
+      thumbnailLocalPath
+    );
+    newThumbnailCloudinaryResponse =
+      await uploadOnCloudinary(thumbnailLocalPath);
+
+    if (
+      !newThumbnailCloudinaryResponse ||
+      !newThumbnailCloudinaryResponse.url
+    ) {
+      throw new ApiError(
+        500,
+        "Failed to upload new thumbnail  to Cloudinary.Video not updated."
+      );
+    }
+    updateData.thumbnail = newThumbnailCloudinaryResponse.url;
+
+    if (video.thumbnail) {
+      try {
+        const urlParts = video.thumbnail.split("/");
+        const publicIdWithExtension = urlParts[urlParts.length - 1];
+        if (publicIdWithExtension) {
+          oldThumbnailPublicId = publicIdWithExtension.substring(
+            0,
+            publicIdWithExtension.lastIndexOf(".")
+          );
+          const folderPath = urlParts
+            .slice(
+              urlParts.findIndex(
+                (part) => part === process.env.CLOUDINARY_CLOUD_NAME
+              ) + 1,
+              urlParts.length - 1
+            )
+            .join("/");
+
+          if (folderPath && !oldThumbnailPublicId.startsWith(folderPath)) {
+            oldThumbnailPublicId = `${folderPath}/${oldThumbnailPublicId}`;
+          }
+        }
+      } catch (error) {
+        console.error(
+          "Error parsing public_id from old thumbnail URL:",
+          video.thumbnail,
+          error
+        );
+      }
     }
   }
+  if (Object.keys(updateData).length === 0) {
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          video,
+          "No changes provided or detected. Video not updated."
+        )
+      );
+  }
+
+  const updatedVideo = await Video.findByIdAndUpdate(
+    videoId,
+
+    { $set: updateData },
+    {
+      new: true,
+      runValidators: true, // Ensure validation is applied on update
+    }
+  ).populate("owner", "userName avatar fullName");
+
+  if (!updateVideo) {
+    if (newThumbnailCloudinaryResponse?.public_id) {
+      try {
+        await deleteFromCloudinary(
+          newThumbnailCloudinaryResponse.public_id,
+          "image"
+        );
+      } catch (error) {
+        console.error(
+          "Error deleting new thumbnail from Cloudinary after DB failed update:",
+          error
+        );
+      }
+    }
+    throw new ApiError(500, "Failed to update video details in the database.");
+  }
+
+  if (
+    oldThumbnailPublicId &&
+    newThumbnailCloudinaryResponse?.url &&
+    video.thumbnail !== newThumbnailCloudinaryResponse.url
+  ) {
+    console.log(
+      "Attempting to delete old thumbnail from Cloudinary:",
+      oldThumbnailPublicId
+    );
+    try {
+      await deleteFromCloudinary(oldThumbnailPublicId, "image");
+      console.log("Old thumbnail deleted successfully from Cloudinary.");
+    } catch (error) {
+      console.error(
+        "Failed to delete old thumbnail from Cloudinary (but DB was updated):",
+        error
+      );
+    }
+  }
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(200, updatedVideo, "Video details updated successfully")
+    );
 });
 
 /-----TODO: delete video-----------------/;
@@ -573,6 +714,7 @@ const deleteVideo = asyncHandler(async (req, res) => {
   }
 
   const video = await Video.findById(videoId);
+
   if (!video) {
     throw new ApiError(404, "Video not found");
   }
@@ -581,64 +723,104 @@ const deleteVideo = asyncHandler(async (req, res) => {
     throw new ApiError(403, "You are not authorized to delete this video");
   }
 
-  let videoFilePublicId = null;
-  if (video.videoFile) {
-    const urlParts = video.videoFile.split("/");
-    const publicIdWithExtension = urlParts.pop();
-    videoFilePublicId = publicIdWithExtension.substring(
-      0,
-      publicIdWithExtension.lastIndexOf(".")
-    );
-    const folderPath = urlParts
-      .slice(
-        urlParts.indexOf(process.env.CLOUDINARY_CLOUD_NAME) + 1,
-        urlParts.length - 1
-      )
-      .join("/");
-    if (folderPath) videoFilePublicId = `${folderPath}/${videoFilePublicId}`;
-  }
+  const videoFilePublicIdToDelete = video.videoFilePublicId;
+  const videoFileResType = video.videoFileResourceType || "video"; // Fallback if not stored
+  const thumbnailPublicIdToDelete = video.thumbnailPublicId;
+  const thumbnailResType = video.thumbnailResourceType || "image";
 
-  let thumbnailPublicId = null;
-  if (video.thumbnail) {
-    const urlParts = video.thumbnail.split("/");
-    const publicIdWithExtension = urlParts.pop();
-    thumbnailPublicId = publicIdWithExtension.substring(
-      0,
-      publicIdWithExtension.lastIndexOf(".")
-    );
-    const folderPath = urlParts
-      .slice(
-        urlParts.indexOf(process.env.CLOUDINARY_CLOUD_NAME) + 1,
-        urlParts.length - 1
-      )
-      .join("/");
-    if (folderPath) thumbnailPublicId = `${folderPath}/${thumbnailPublicId}`;
-  }
   try {
-    const deletionResult = await Video.findByIdAndDelete(videoId);
-    if (!deletionResult) {
+    // 4. Delete the video document from MongoDB first
+    const deletionResultFromDB = await Video.findByIdAndDelete(videoId);
+    if (!deletionResultFromDB) {
       throw new ApiError(
         404,
-        "Failed to delete video from database or it was already deleted."
+        "Video not found during deletion (it may have already been deleted)."
       );
     }
-    if (videoFilePublicId) {
-      await deleteFromCloudinary(videoFilePublicId, "video");
+
+    // 5. If DB deletion was successful, proceed to delete from Cloudinary
+    let cloudinaryVideoDeleted = false;
+    let cloudinaryThumbnailDeleted = false;
+
+    if (videoFilePublicIdToDelete) {
+      console.log(
+        `Attempting to delete VIDEO from Cloudinary: public_id='${videoFilePublicIdToDelete}', resource_type='${videoFileResType}'`
+      );
+      const cdVideoResult = await deleteFromCloudinary(
+        videoFilePublicIdToDelete,
+        videoFileResType
+      );
+      if (
+        cdVideoResult &&
+        (cdVideoResult.result === "ok" || cdVideoResult.result === "not found")
+      ) {
+        cloudinaryVideoDeleted = true;
+        console.log("Cloudinary video deletion status:", cdVideoResult.result);
+      } else {
+        console.warn(
+          "Cloudinary video asset deletion may have failed or returned unexpected result:",
+          cdVideoResult
+        );
+      }
+    } else {
+      console.log(
+        "No videoFilePublicId found in DB record, skipping Cloudinary video deletion."
+      );
+      cloudinaryVideoDeleted = true;
     }
-    if (thumbnailPublicId) {
-      await deleteFromCloudinary(thumbnailPublicId, "image");
+
+    if (thumbnailPublicIdToDelete) {
+      console.log(
+        `Attempting to delete THUMBNAIL from Cloudinary: public_id='${thumbnailPublicIdToDelete}', resource_type='${thumbnailResType}'`
+      );
+      const cdThumbResult = await deleteFromCloudinary(
+        thumbnailPublicIdToDelete,
+        thumbnailResType
+      );
+      if (
+        cdThumbResult &&
+        (cdThumbResult.result === "ok" || cdThumbResult.result === "not found")
+      ) {
+        cloudinaryThumbnailDeleted = true;
+        console.log(
+          "Cloudinary thumbnail deletion status:",
+          cdThumbResult.result
+        );
+      } else {
+        console.warn(
+          "Cloudinary thumbnail deletion may have failed or returned unexpected result:",
+          cdThumbResult
+        );
+      }
+    } else {
+      console.log(
+        "No thumbnailPublicId found in DB record, skipping Cloudinary thumbnail deletion."
+      );
+      cloudinaryThumbnailDeleted = true;
     }
+
+    // 6. Delete associated likes and comments
     await Like.deleteMany({ video: videoId });
+    console.log(`Deleted likes associated with video ${videoId}`);
     await Comment.deleteMany({ video: videoId });
+    console.log(`Deleted comments associated with video ${videoId}`);
+
+    // TODO: Remove this videoId from any playlists it might be in (advanced).
 
     return res.status(200).json(
       new ApiResponse(
         200,
         {
-          videoId: deletionResult._id,
-          message: "Video and associated assets deleted successfully.",
+          deletedVideoId: deletionResultFromDB._id,
+          cloudinaryVideoAssetStatus: cloudinaryVideoDeleted
+            ? "processed"
+            : "failed_or_not_found_in_cd",
+          cloudinaryThumbnailAssetStatus: cloudinaryThumbnailDeleted
+            ? "processed"
+            : "failed_or_not_found_in_cd",
+          message: "Video and associated data processed for deletion.",
         },
-        "Video deleted successfully."
+        "Video deletion process completed."
       )
     );
   } catch (error) {

@@ -56,7 +56,7 @@ const toggleVideoLike = asyncHandler(async (req, res) => {
 
     return res
       .status(statusCode)
-      .json(new ApiResponse(statusCode, responseMessage, likeData));
+      .json(new ApiResponse(statusCode, likeData, responseMessage));
   } catch (error) {
     console.error("Error toggling video like:", error);
     throw new ApiError(
