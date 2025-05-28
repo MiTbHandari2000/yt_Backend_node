@@ -1,5 +1,6 @@
 import mongoose, { isValidObjectId } from "mongoose";
 import { Tweet } from "../models/tweet.model.js";
+import { Like } from "../models/like.model.js";
 import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
@@ -103,7 +104,7 @@ const getUserTweets = asyncHandler(async (req, res) => {
       },
     };
 
-    const result = await aggregatePaginate(tweetsAggregate, options);
+    const result = await Tweet.aggregatePaginate(tweetsAggregate, options);
 
     if (
       !result ||
@@ -186,7 +187,7 @@ const updateTweet = asyncHandler(async (req, res) => {
   tweet.content = content.trim();
   const updatedTweet = await tweet.save({ validateBeforeSave: true });
 
-  if (!updateTweet) {
+  if (!updatedTweet) {
     throw new ApiError(500, "Fail to update tweet. Try again ");
   }
 
@@ -226,12 +227,14 @@ const deleteTweet = asyncHandler(async (req, res) => {
     );
   }
 
+  await Like.deleteMany({ tweet: tweetId });
+
   return res
     .status(200)
     .json(
       new ApiResponse(
         200,
-        { tweetId: deletionResult.id, message: "tweet deleted successfully" },
+        { tweetId: deletionResult._id, message: "tweet deleted successfully" },
         "tweet deleted successfully"
       )
     );
