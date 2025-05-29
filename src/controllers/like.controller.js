@@ -211,11 +211,11 @@ const getLikedVideos = asyncHandler(async (req, res) => {
   }
 
   try {
-    const likedVideosAggregate = await Like.aggregate([
+    const likedVideosAggregate = Like.aggregate([
       {
         $match: {
-          likedBy: mongoose.Types.ObjectId(userId),
-          video: { $ne: null, $exists: true },
+          likedBy: new mongoose.Types.ObjectId(userId),
+          video: { $exists: true, $ne: null },
         },
       },
       {
@@ -230,12 +230,15 @@ const getLikedVideos = asyncHandler(async (req, res) => {
           pipeline: [
             {
               $project: {
+                _id: 1,
                 title: 1,
                 thumbnail: 1,
                 videoFile: 1,
                 duration: 1,
                 views: 1,
+                isPublished: 1,
                 createdAt: 1,
+                updatedAt: 1,
                 owner: 1,
               },
             },
@@ -243,7 +246,15 @@ const getLikedVideos = asyncHandler(async (req, res) => {
         },
       },
       {
-        $unwind: "$likedVideoDetails",
+        $unwind: {
+          path: "$likedVideoDetails",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $match: {
+          likedVideoDetails: { $ne: null },
+        },
       },
       {
         $lookup: {
@@ -254,6 +265,7 @@ const getLikedVideos = asyncHandler(async (req, res) => {
           pipeline: [
             {
               $project: {
+                _id: 1,
                 userName: 1,
                 avatar: 1,
                 fullName: 1,
@@ -264,20 +276,25 @@ const getLikedVideos = asyncHandler(async (req, res) => {
       },
 
       {
-        $addFields: {
-          "likedVideoDetails.ownerDetails": {
-            $first: "$ownerDetails",
-          },
+        $unwind: {
+          path: "$ownerDetails",
+          preserveNullAndEmptyArrays: true,
         },
       },
 
       {
-        $replaceRoot: { $newRoot: "$likedVideoDetails" },
-      },
-
-      {
         $project: {
-          ownerDetails: 0,
+          _id: "$likedVideoDetails._id",
+          title: "$likedVideoDetails.title",
+          thumbnail: "$likedVideoDetails.thumbnail",
+          description: "$likedVideoDetails.description",
+          videoFile: "$likedVideoDetails.videoFile",
+          duration: "$likedVideoDetails.duration",
+          views: "$likedVideoDetails.views",
+          isPublished: "$likedVideoDetails.isPublished",
+          createdAt: "$likedVideoDetails.createdAt",
+          updatedAt: "$likedVideoDetails.updatedAt",
+          owner: "$ownerDetails",
         },
       },
     ]);
@@ -289,37 +306,46 @@ const getLikedVideos = asyncHandler(async (req, res) => {
         totalDocs: "totalLikedVideos",
         docs: "likedVideos",
       },
+      lean: true,
     };
 
     const result = await Like.aggregatePaginate(likedVideosAggregate, options);
-
     if (
       !result ||
-      (result.docs.length === 0 && result.totalDocs === 0 && page > 1)
+      typeof result !== "object" ||
+      !result.likedVideos ||
+      !Array.isArray(result.likedVideos)
     ) {
-      return res.status(200).json(
-        new ApiResponse(
-          200,
-          {
-            likedVideos: [],
-            totalLikedVideos: result?.totalDocs || 0,
-            currentPage: page,
-            totalPages: result?.totalPages || 0,
-            hasNextPage: false,
-            hasPrevPage: result?.totalPages > 1,
-          },
-          "No liked videos found on this page."
-        )
+      console.error(
+        "Like.aggregatePaginate returned an unexpected result structure:",
+        result
+      );
+      throw new ApiError(
+        500,
+        "Failed to fetch liked videos: invalid pagination result structure."
       );
     }
-    if (!result || result.docs.length === 0) {
+
+    if (result.likedVideos.length === 0) {
+      if (page > 1 && result.totalLikedVideos > 0 && page > result.totalPages) {
+        return res
+          .status(200)
+          .json(
+            new ApiResponse(
+              200,
+              { ...result, likedVideos: [] },
+              "No liked videos found on this page."
+            )
+          );
+      }
       return res.status(200).json(
         new ApiResponse(
           200,
           {
             likedVideos: [],
             totalLikedVideos: 0,
-            currentPage: 1,
+            page: 1,
+            limit,
             totalPages: 0,
             hasNextPage: false,
             hasPrevPage: false,
@@ -328,26 +354,10 @@ const getLikedVideos = asyncHandler(async (req, res) => {
         )
       );
     }
-    const responseData = {
-      likedVideos: result.docs,
-      totalLikedVideos: result.totalDocs,
-      limit: result.limit,
-      page: result.page,
-      totalPages: result.totalPages,
-      hasNextPage: result.hasNextPage,
-      hasPrevPage: result.hasPrevPage,
-      nextPage: result.nextPage,
-      prevPage: result.prevPage,
-    };
-
     return res
       .status(200)
       .json(
-        new ApiResponse(
-          200,
-          responseData,
-          "Liked videos retrieved successfully"
-        )
+        new ApiResponse(200, result, "Liked videos retrieved successfully")
       );
   } catch (error) {
     console.error("Error retrieving liked videos:", error);

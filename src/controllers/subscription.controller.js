@@ -22,7 +22,7 @@ const toggleSubscription = asyncHandler(async (req, res) => {
     );
   }
 
-  if (channelId.tostring() === subscriberId.tostring()) {
+  if (channelId.toString() === subscriberId.toString()) {
     throw new ApiError(400, "You cannot subscribe to your own channel");
   }
 
