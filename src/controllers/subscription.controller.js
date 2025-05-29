@@ -4,7 +4,6 @@ import { Subscription } from "../models/subscription.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import e, { response } from "express";
 
 /-------TODO: toggle subscription----------------/;
 const toggleSubscription = asyncHandler(async (req, res) => {
@@ -31,15 +30,15 @@ const toggleSubscription = asyncHandler(async (req, res) => {
     throw new ApiError(404, "Channel not found");
   }
 
-  const subcriptionCondition = {
+  const subscriptionCondition = {
     channel: channelId,
     subscriber: subscriberId,
   };
-  const existingSubcription = await Subscription.findOne(subcriptionCondition);
+  const existingSubcription = await Subscription.findOne(subscriptionCondition);
 
   let responseMessage = "";
   let statusCode = 200;
-  let subscribed = false;
+  //let subscribed = false;
   let subscriptionData = null;
 
   try {
@@ -52,27 +51,28 @@ const toggleSubscription = asyncHandler(async (req, res) => {
         throw new ApiError(500, "Fail to unsubscribe the channel");
       }
       responseMessage = "Unsubscribed successfully";
-      subscribed = false;
+      //subscribed = false;
       subscriptionData = { channelId, subscriberId, subscribed: false };
+      statusCode = 200;
     } else {
-      const newSubscription = await Subscription.create(subcriptionCondition);
+      const newSubscription = await Subscription.create(subscriptionCondition);
       if (!newSubscription) {
         throw new ApiError(500, "Fail to subscribe the channel");
       }
       responseMessage = "Subscribed successfully";
-      subscribed = true;
+      // subscribed = true;
       statusCode = 201;
       subscriptionData = {
         channelId,
         subscriberId,
         subscribed: true,
-        subscriberId: newSubscription._id,
+        subscriptionId: newSubscription._id, //made change here
       };
     }
 
     return res
       .status(statusCode)
-      .json(new ApiResponse(statusCode, responseMessage, subscriptionData));
+      .json(new ApiResponse(statusCode, subscriptionData, responseMessage)); //order changed here
   } catch (error) {
     console.error("Error toggling subscription:", error);
     throw new ApiError(
@@ -88,15 +88,17 @@ const getUserChannelSubscribers = asyncHandler(async (req, res) => {
   const { channelId } = req.params;
   let { page = 1, limit = 10 } = req.query;
 
-  if (!channelId && req.user?._id) {
-    channelId = req.user._id.tostring();
-  } else if (!isValidObjectId(channelId)) {
+  // if (!channelId && req.user?._id) {
+
+  //   channelId = req.user._id.toString();
+
+  if (!isValidObjectId(channelId)) {
     throw new ApiError(400, "Invalid channel id");
   }
 
-  const channelUser = await User.findById(req.user._id);
+  const channelUser = await User.findById(channelId);
   if (!channelUser) {
-    throw new ApiError(404, "Channel not found");
+    throw new ApiError(404, "Channel (user) not found.");
   }
 
   page = parseInt(page, 10);
@@ -112,10 +114,15 @@ const getUserChannelSubscribers = asyncHandler(async (req, res) => {
   }
 
   try {
-    const subscriberAggregate = await Subscription.aggregate([
+    const subscriberAggregate = Subscription.aggregate([
       {
         $match: {
-          channel: mongoose.Types.ObjectId(channelId),
+          channel: new mongoose.Types.ObjectId(channelId),
+        },
+      },
+      {
+        $sort: {
+          createdAt: -1,
         },
       },
       {
@@ -143,12 +150,6 @@ const getUserChannelSubscribers = asyncHandler(async (req, res) => {
       {
         $replaceRoot: { newRoot: "$subscriberDetails" },
       },
-
-      {
-        $sort: {
-          createdAt: -1,
-        },
-      },
     ]);
 
     const options = {
@@ -163,50 +164,58 @@ const getUserChannelSubscribers = asyncHandler(async (req, res) => {
       subscriberAggregate,
       options
     );
-
     if (
       !result ||
-      (result.docs.length === 0 && result.totalDocs === 0 && page > 1)
+      typeof result !== "object" ||
+      !result.subscribers ||
+      !Array.isArray(result.subscribers)
     ) {
-      return res.status(200).json(
-        new ApiResponse(
-          200,
-          {
-            subscribers: [],
-            totalSubscribers: result?.totalDocs || 0,
-            currentPage: page,
-            totalPages: result?.totalPages || 0,
-            ...options,
-          },
-          "No subscribers found on this page."
-        )
+      console.error(
+        "Subscription.aggregatePaginate returned an unexpected result structure for subscribers:",
+        result
+      );
+      throw new ApiError(
+        500,
+        "Failed to fetch subscribers: invalid pagination result."
       );
     }
-    if (!result || result.docs.length === 0) {
+
+    if (result.subscribers.length === 0) {
+      if (page > 1 && result.totalSubscribers > 0 && page > result.totalPages) {
+        return res.status(200).json(
+          new ApiResponse(
+            200,
+
+            { ...result, subscribers: [] }, // Ensure subscribers array is present
+            "No subscribers found on this page."
+          )
+        );
+      }
       return res.status(200).json(
         new ApiResponse(
           200,
+
           {
             subscribers: [],
             totalSubscribers: 0,
             currentPage: 1,
+            limit: limit,
             totalPages: 0,
-            ...options,
+            hasNextPage: false,
+            hasPrevPage: false,
           },
-          "this channel has no subscribers yet."
+          "This channel has no subscribers yet."
         )
       );
     }
-
-    const responseData = { ...result };
 
     return res
       .status(200)
       .json(
         new ApiResponse(
           200,
-          responseData,
-          `Channel subscribers fetched successfully.`
+          result,
+          "Channel subscribers fetched successfully."
         )
       );
   } catch (error) {
@@ -245,10 +254,10 @@ const getSubscribedChannels = asyncHandler(async (req, res) => {
   }
 
   try {
-    const subscribedChannelAggregate = await Subscription.aggregate([
+    const subscribedChannelAggregate = Subscription.aggregate([
       {
         $match: {
-          subscriber: mongoose.Types.ObjectId(userId),
+          subscriber: new mongoose.Types.ObjectId(userId),
         },
       },
 
