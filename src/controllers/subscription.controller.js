@@ -35,7 +35,7 @@ const toggleSubscription = asyncHandler(async (req, res) => {
     subscriber: subscriberId,
   };
   const existingSubcription = await Subscription.findOne(subscriptionCondition);
-
+  console.log("Result of Subscription.findOne:", existingSubcription);
   let responseMessage = "";
   let statusCode = 200;
   //let subscribed = false;
@@ -280,7 +280,7 @@ const getSubscribedChannels = asyncHandler(async (req, res) => {
         },
       },
       {
-        $unwind: "channelDetails",
+        $unwind: "$channelDetails",
       },
       {
         $replaceRoot: { newRoot: "$channelDetails" },
@@ -308,14 +308,20 @@ const getSubscribedChannels = asyncHandler(async (req, res) => {
 
     if (
       !result ||
-      (result.docs.length === 0 && result.totalDocs === 0 && page > 1)
+      (result.subscribedChannels.length === 0 &&
+        result.totalSubscribedChannels === 0 &&
+        page > 1)
     ) {
+      console.error(
+        "Subscription.paginate returned an unexpected result structure for subscribed channels. Actual result:",
+        result
+      );
       return res.status(200).json(
         new ApiResponse(
           200,
           {
             subscribedChannels: [],
-            totalSubscribedChannels: result?.totalDocs || 0,
+            totalSubscribedChannels: result?.totalSubscribedChannels || 0,
             currentPage: page,
             totalPages: result?.totalPages || 0,
             ...options,
@@ -324,7 +330,7 @@ const getSubscribedChannels = asyncHandler(async (req, res) => {
         )
       );
     }
-    if (!result || result.docs.length === 0) {
+    if (!result || result.subscribedChannels.length === 0) {
       return res.status(200).json(
         new ApiResponse(
           200,
