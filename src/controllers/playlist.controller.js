@@ -1,6 +1,7 @@
 import mongoose, { isValidObjectId } from "mongoose";
 import { Playlist } from "../models/playlist.model.js";
 import { User } from "../models/user.model.js";
+import { Video } from "../models/video.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
@@ -11,19 +12,17 @@ const createPlaylist = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
 
   if (!userId) {
-    throw new ApiError(
-      401,
-      "User not Unauthorized, please login to create a playlist"
-    );
+    throw new ApiError(401, "Unauthorized, please login to create a playlist");
   }
 
-  if (!name.trim()) {
+  // Fix: Check if name exists and is not empty after trimming
+  if (!name || !name.trim()) {
     throw new ApiError(400, "Playlist name is required");
   }
 
   const playlist = await Playlist.create({
     name: name.trim(),
-    description: description.trim(),
+    description: description?.trim() || "",
     owner: userId,
     videos: [],
   });
@@ -46,19 +45,19 @@ const getUserPlaylists = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Invalid user id");
   }
 
-  page = parseInt(page, 10);
-  limit = parseInt(limit, 10);
-  if (!isNaN(page) || page < 1) page = 1;
-  if (!isNaN(limit) || limit < 1) limit = 10;
-  if (limit > 50) limit = 50;
-
   const user = await User.findById(userId);
   if (!user) {
     throw new ApiError(404, "User not found");
   }
 
+  page = page ? parseInt(page, 10) : 1;
+  limit = limit ? parseInt(limit, 10) : 10;
+  if (isNaN(page) || page < 1) page = 1;
+  if (isNaN(limit) || limit < 1) limit = 10;
+  if (limit > 50) limit = 50;
+
   try {
-    const playlistAggregate = await Playlist.aggregate([
+    const playlistAggregate = Playlist.aggregate([
       {
         $match: {
           owner: new mongoose.Types.ObjectId(userId),
@@ -71,21 +70,19 @@ const getUserPlaylists = asyncHandler(async (req, res) => {
           foreignField: "_id",
           as: "playlistVideos",
           pipeline: [
-            { limit: 5 },
+            { $limit: 5 }, // Fix: Added $ prefix
             {
-              $project: { thumbnail: 1 },
+              $project: { thumbnail: 1, _id: 0 },
             },
           ],
         },
       },
-
       {
         $addFields: {
           videoCount: { $size: "$videos" },
           previewThumbnails: "$playlistVideos.thumbnail",
         },
       },
-
       {
         $project: {
           playlistVideos: 0,
@@ -103,30 +100,39 @@ const getUserPlaylists = asyncHandler(async (req, res) => {
         totalDocs: "totalPlaylists",
         docs: "playlists",
       },
+      lean: true,
     };
 
     const result = await Playlist.aggregatePaginate(playlistAggregate, options);
 
     if (
       !result ||
-      (result.playlists.length === 0 && result.totalPlaylists === 0 && page > 1)
+      typeof result !== "object" ||
+      !result.playlists ||
+      !Array.isArray(result.playlists)
     ) {
-      return res.status(200).json(
-        new ApiResponse(
-          200,
-          {
-            playlists: [],
-            totalPlaylists: 0,
-            ...options,
-            totalpages: 0,
-            hasNextPage: false,
-            hasPrevPage: false,
-          },
-          "No playlists found for this user on this page"
-        )
+      console.error(
+        "Playlist.aggregatePaginate returned an unexpected result structure:",
+        result
+      );
+      throw new ApiError(
+        500,
+        "Failed to fetch playlists: invalid pagination result."
       );
     }
-    if (!result || result.playlists.length === 0) {
+
+    if (result.playlists.length === 0) {
+      if (page > 1 && result.totalPlaylists > 0 && page > result.totalPages) {
+        return res
+          .status(200)
+          .json(
+            new ApiResponse(
+              200,
+              { ...result, playlists: [] },
+              "No playlists found for this user on this page."
+            )
+          );
+      }
       return res.status(200).json(
         new ApiResponse(
           200,
@@ -135,11 +141,11 @@ const getUserPlaylists = asyncHandler(async (req, res) => {
             totalPlaylists: 0,
             page: 1,
             limit,
-            totalpages: 0,
+            totalPages: 0,
             hasNextPage: false,
             hasPrevPage: false,
           },
-          "This user has not created any playlists yet"
+          "This user has not created any playlists yet."
         )
       );
     }
@@ -147,7 +153,7 @@ const getUserPlaylists = asyncHandler(async (req, res) => {
     return res
       .status(200)
       .json(
-        new ApiResponse(200, result, "User's playlists fetched successfully")
+        new ApiResponse(200, result, "User's playlists fetched successfully.")
       );
   } catch (error) {
     console.error("Error fetching playlists:", error);
@@ -167,8 +173,8 @@ const getPlaylistById = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Invalid playlist id");
   }
 
-  page = parseInt(page, 10);
-  limit = parseInt(limit, 10);
+  page = page ? parseInt(page, 10) : 1;
+  limit = limit ? parseInt(limit, 10) : 10;
   if (isNaN(page) || page < 1) page = 1;
   if (isNaN(limit) || limit < 1) limit = 10;
   if (limit > 100) limit = 100;
@@ -180,7 +186,8 @@ const getPlaylistById = asyncHandler(async (req, res) => {
       throw new ApiError(404, "Playlist not found");
     }
 
-    const videoIds = playlist.videos;
+    const videoIds = playlist.videos || [];
+    const totalVideos = videoIds.length;
     const paginatedVideoIds = videoIds.slice((page - 1) * limit, page * limit);
 
     const populatedVideos = await Video.find({
@@ -217,21 +224,20 @@ const getPlaylistById = asyncHandler(async (req, res) => {
         )
       );
   } catch (error) {
-    console.error("Error fetching playlist by id  :", error);
+    console.error("Error fetching playlist by id:", error);
     throw new ApiError(
       500,
       error.message || "An error occurred while fetching playlist"
     );
   }
 });
-
 /---------TODO: add video to playlist------------/;
 const addVideoToPlaylist = asyncHandler(async (req, res) => {
   const { playlistId, videoId } = req.params;
   const userId = req.user?._id;
 
   if (!userId) {
-    throw new ApiError(401, "User not Unauthorized");
+    throw new ApiError(401, "Unauthorized");
   }
   if (!isValidObjectId(playlistId)) {
     throw new ApiError(400, "Invalid playlist id");
@@ -279,8 +285,9 @@ const addVideoToPlaylist = asyncHandler(async (req, res) => {
 const removeVideoFromPlaylist = asyncHandler(async (req, res) => {
   const { playlistId, videoId } = req.params;
   const userId = req.user?._id;
+
   if (!userId) {
-    throw new ApiError(401, "User not Unauthorized");
+    throw new ApiError(401, "Unauthorized");
   }
   if (!isValidObjectId(playlistId)) {
     throw new ApiError(400, "Invalid playlist id");
@@ -288,6 +295,7 @@ const removeVideoFromPlaylist = asyncHandler(async (req, res) => {
   if (!isValidObjectId(videoId)) {
     throw new ApiError(400, "Invalid video id");
   }
+
   const playlist = await Playlist.findById(playlistId);
   if (!playlist) {
     throw new ApiError(404, "Playlist not found");
@@ -327,7 +335,7 @@ const deletePlaylist = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
 
   if (!userId) {
-    throw new ApiError(401, "User not Unauthorized");
+    throw new ApiError(401, "Unauthorized");
   }
   if (!isValidObjectId(playlistId)) {
     throw new ApiError(400, "Invalid playlist id");
@@ -358,23 +366,24 @@ const deletePlaylist = asyncHandler(async (req, res) => {
       )
     );
 });
-
 /----------------TODO: update playlist--------------------/;
 const updatePlaylist = asyncHandler(async (req, res) => {
   const { playlistId } = req.params;
   const { name, description } = req.body;
   const userId = req.user?._id;
+
   if (!userId) {
-    throw new ApiError(401, "User not Unauthorized");
+    throw new ApiError(401, "Unauthorized");
   }
   if (!isValidObjectId(playlistId)) {
     throw new ApiError(400, "Invalid playlist id");
   }
 
-  if (!name.trim() && (description === undefined || description?.trim())) {
+  // Fix: Improved validation logic
+  if ((!name || !name.trim()) && description === undefined) {
     throw new ApiError(
       400,
-      "Either name or description msut be provided to update"
+      "Either name or description must be provided to update"
     );
   }
 
@@ -387,11 +396,11 @@ const updatePlaylist = asyncHandler(async (req, res) => {
     throw new ApiError(403, "You are not authorized to update this playlist");
   }
 
-  if (name?.trim()) {
+  if (name && name.trim()) {
     playlist.name = name.trim();
   }
   if (description !== undefined) {
-    playlist.description = description?.trim();
+    playlist.description = description?.trim() || "";
   }
 
   const updatedPlaylist = await playlist.save({ validateBeforeSave: true });
