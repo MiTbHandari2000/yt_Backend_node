@@ -6,13 +6,14 @@ import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
-/-TODO: Get the channel stats like total video views, total subscribers, total videos, total likes etc-/;
+//get channel stats  ;
 const getChannelStats = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
 
   if (!userId) {
     throw new ApiError(401, "User not authenticated");
   }
+
   try {
     const [
       totalVideos,
@@ -26,7 +27,7 @@ const getChannelStats = asyncHandler(async (req, res) => {
       Video.aggregate([
         {
           $match: {
-            owner: mongoose.Types.ObjectId(userId),
+            owner: new mongoose.Types.ObjectId(userId), // FIXED: Added 'new' keyword
           },
         },
         {
@@ -52,16 +53,14 @@ const getChannelStats = asyncHandler(async (req, res) => {
     const stats = {
       totalVideos,
       totalSubscribers,
-      totalViewsOnChannel,
+      totalViews, // FIXED: Variable name was incorrect (totalViewsOnChannel)
       totalLikeOnUserVideos,
       channelId: userId,
     };
 
-    return res
-      .status(200)
-      .json(
-        new ApiResponse(200, "Channel statistics fetched successfully", stats)
-      );
+    return res.status(200).json(
+      new ApiResponse(200, stats, "Channel statistics fetched successfully") // FIXED: Corrected parameter order
+    );
   } catch (error) {
     console.error("Error fetching channel stats:", error);
     if (error instanceof mongoose.Error.CastError) {
@@ -77,7 +76,7 @@ const getChannelStats = asyncHandler(async (req, res) => {
   }
 });
 
-/-------TODO: Get all the videos uploaded by the channel--------/;
+//TODO: Get all the videos uploaded by the channel
 const getChannelVideos = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
 
@@ -85,7 +84,15 @@ const getChannelVideos = asyncHandler(async (req, res) => {
     throw new ApiError(401, "User not authenticated");
   }
 
-  let { page = 1, limit = 10 } = req.query;
+  let {
+    page = 1,
+    limit = 10,
+    sortBy = "createdAt",
+    sortType = "desc",
+    search,
+  } = req.query;
+
+  // Parse and validate pagination parameters
   page = parseInt(page);
   limit = parseInt(limit);
 
@@ -99,10 +106,32 @@ const getChannelVideos = asyncHandler(async (req, res) => {
     limit = 50;
   }
 
-  try {
-    const videosQuery = Video.find({ owner: userId })
+  // Validate sort parameters
+  const validSortFields = ["createdAt", "title", "views", "duration"];
+  if (!validSortFields.includes(sortBy)) {
+    sortBy = "createdAt";
+  }
 
-      .sort({ createdAt: -1 })
+  const sortOrder = sortType === "asc" ? 1 : -1;
+
+  try {
+    // Build match criteria
+    const matchCriteria = { owner: userId };
+
+    // Add search functionality if search query provided
+    if (search && search.trim()) {
+      matchCriteria.$or = [
+        { title: { $regex: search.trim(), $options: "i" } },
+        { description: { $regex: search.trim(), $options: "i" } },
+      ];
+    }
+
+    // Create sort object
+    const sortObj = {};
+    sortObj[sortBy] = sortOrder;
+
+    const videosQuery = Video.find(matchCriteria)
+      .sort(sortObj)
       .skip((page - 1) * limit)
       .limit(limit)
       .select(
@@ -111,34 +140,48 @@ const getChannelVideos = asyncHandler(async (req, res) => {
 
     const [videos, totalVideosCount] = await Promise.all([
       videosQuery.exec(),
-      Video.countDocuments({ owner: userId }),
+      Video.countDocuments(matchCriteria),
     ]);
 
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalVideosCount / limit);
+    const hasNextPage = page < totalPages;
+    const hasPrevPage = page > 1;
+
     if (totalVideosCount === 0) {
+      const emptyMessage = search
+        ? `No videos found matching "${search}"`
+        : "This channel has no videos yet";
+
       return res.status(200).json(
         new ApiResponse(
           200,
           {
             videos: [],
             totalVideos: 0,
-            page: 1,
-            limit,
+            currentPage: page,
+            limitPerPage: limit,
             totalPages: 0,
             hasNextPage: false,
             hasPrevPage: false,
+            searchQuery: search || null,
           },
-          "This channel has no videos yet"
+          emptyMessage
         )
       );
     }
+
     const responseData = {
       videos,
       totalVideos: totalVideosCount,
       currentPage: page,
       limitPerPage: limit,
-      totalPages,
-      hasNextpage,
-      hasPrevPage,
+      totalPages, // FIXED: Variable was undefined
+      hasNextPage, // FIXED: Variable name was incorrect (hasNextpage)
+      hasPrevPage, // FIXED: Variable was undefined
+      searchQuery: search || null,
+      sortBy,
+      sortType,
     };
 
     return res
@@ -147,11 +190,11 @@ const getChannelVideos = asyncHandler(async (req, res) => {
         new ApiResponse(
           200,
           responseData,
-          "Channel videos fetched successfully."
+          "Channel videos fetched successfully"
         )
       );
   } catch (error) {
-    console.log("Error fetching channel videos:", error);
+    console.error("Error fetching channel videos:", error);
     if (error instanceof mongoose.Error.CastError) {
       throw new ApiError(
         400,
