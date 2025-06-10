@@ -33,7 +33,7 @@ export const verifyJWT = asyncHandler(async (req, _, next) => {
 
     /-ATTACHES THE AUTHENTICATED USER'S INFORMATION TO THE "req" OBJECT-/;
 
-    req.user = user; //did'nt get it
+    req.user = user; //most important
 
     /-----TELLS THE EXPRESS TO THE NEXT STEP------/;
     next();
