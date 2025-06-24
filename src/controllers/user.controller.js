@@ -24,6 +24,7 @@ const generateAccessAndRefreshTokens = async (userId) => {
 
     return { accessToken, refreshToken };
   } catch (error) {
+    if (error instanceof ApiError) throw error;
     throw new ApiError(
       500,
       "something went wrong while generating refresh and access Token"
@@ -63,7 +64,10 @@ const registerUser = asyncHandler(async (req, res) => {
   /STEP-3 USER ALREADY EXITS/;
 
   const existedUser = await User.findOne({
-    $or: [{ userName: userName.toLowerCase() }, { email: email.toLowerCase() }],
+    $or: [
+      { userName: userName.trim().toLowerCase() },
+      { email: email.trim().toLowerCase() },
+    ],
   });
 
   if (existedUser) {
@@ -150,8 +154,8 @@ const loginUser = asyncHandler(async (req, res) => {
 
   /---CHECK THE USERNAME OR EMAIL IS EMPTY OR NOT--/;
 
-  if (!userName && !email) {
-    throw new ApiError(400, "username or email required");
+  if ((!email?.trim() && !userName?.trim()) || !password) {
+    throw new ApiError(400, "Username or email, and password are required.");
   }
 
   /---3.FINDING THE USER BASED ON EITHER USERNAME OR EMAIL---/;
@@ -164,7 +168,7 @@ const loginUser = asyncHandler(async (req, res) => {
   });
 
   if (!user) {
-    throw new ApiError(404, "USER NOT FOUND");
+    throw new ApiError(401, "USER NOT FOUND");
   }
 
   /----4. PASSWORD VALIDATION ---/;
@@ -184,7 +188,7 @@ const loginUser = asyncHandler(async (req, res) => {
   /-FETCHING USER'S DATA FROM DATABASE WHILE EXCLUDING PASSWORD & REFRESH TOKEN-/;
 
   //DIDNT GET IT THIS PART
-  const loggedInUser = await User.findOne(user._id).select(
+  const loggedInUser = await User.findById(user._id).select(
     "-password -refreshToken"
   );
 
@@ -248,7 +252,7 @@ const logoutUser = asyncHandler(async (req, res) => {
     .status(200)
     .clearCookie("accessToken", options)
     .clearCookie("refreshToken", options)
-    .json(new ApiResponse(200, {}, "USer logged out"));
+    .json(new ApiResponse(200, {}, "User logged out"));
 });
 
 /---------------------refreshingAccessToken-----------------------/;
@@ -273,7 +277,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
       throw new ApiError(401, "Invalid Refresh TOken");
     }
 
-    if (incomingRefreshToken !== user?.refreshToken) {
+    if (incomingRefreshToken !== user.refreshToken) {
       throw new ApiError(401, "refresh token is expired or used ");
     }
 
@@ -282,18 +286,18 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
       secure: true,
     };
 
-    const { accessToken, newRefreshToken } =
+    const { accessToken, refreshToken: newGeneratedRefreshToken } =
       await generateAccessAndRefreshTokens(user._id);
 
     return res
       .status(200)
       .cookie("accessToken", accessToken, options)
-      .cookie("refreshToken", newRefreshToken, options)
+      .cookie("refreshToken", newGeneratedRefreshToken, options)
       .json(
         new ApiResponse(
           200,
           { accessToken },
-          { newRefreshToken },
+          { newGeneratedRefreshToken },
           "Access token refreshed successfully"
         )
       );
@@ -338,6 +342,9 @@ const changeCurrentPassword = asyncHandler(async (req, res) => {
 /---------------------------get current user ------------------/;
 
 const getCurrentUser = asyncHandler(async (req, res) => {
+  if (!req.user) {
+    throw new ApiError(401, "User details not found in request.");
+  }
   return res
     .status(200)
     .json(new ApiResponse(200, req.user, "current user fetched successfully"));
@@ -362,8 +369,8 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
 
   if (email?.trim()) {
     const newEmail = email.trim().toLowerCase();
-    const emailOwner = await User.findOne({ email: newEmail });
-    if (emailOwner && emailOwner._id.toString() !== userId.toString()) {
+    const emailExists = await User.findOne({ email: newEmail });
+    if (emailExists && emailExists._id.toString() !== userId.toString()) {
       throw new ApiError(
         409,
         "This email address is already in use by another account."
@@ -373,21 +380,34 @@ const updateAccountDetails = asyncHandler(async (req, res) => {
   }
 
   if (Object.keys(updateData).length === 0) {
-    throw new ApiError(400, "No valid data provided for update.");
+    const currentUserData = await User.findById(userId).select(
+      "-password -refreshToken"
+    ); // Fetch current data
+    return res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          currentUserData,
+          "No changes detected. Account not updated."
+        )
+      );
   }
 
-  const user = await User.findByIdAndUpdate(
+  const updatedUser = await User.findByIdAndUpdate(
     userId,
     { $set: updateData },
     { new: true, runValidators: true }
   ).select("-password -refreshToken");
-  if (!user) {
+  if (!updatedUser) {
     throw new ApiError(404, "User not found or update failed.");
   }
 
   return res
     .status(200)
-    .json(new ApiResponse(200, user, "Account details updated successfully"));
+    .json(
+      new ApiResponse(200, updatedUser, "Account details updated successfully")
+    );
 });
 
 /------------------------------------------update USER AVATAR ----------/;
