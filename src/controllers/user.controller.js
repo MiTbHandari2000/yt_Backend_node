@@ -5,7 +5,7 @@ import { uploadOnCloudinary } from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 
 import jwt from "jsonwebtoken";
-import mongoose from "mongoose";
+import mongoose, { isValidObjectId } from "mongoose";
 import fs from "fs";
 
 /------------------------GENERATE TOKENS------------------------------/;
@@ -13,7 +13,7 @@ const generateAccessAndRefreshTokens = async (userId) => {
   try {
     const user = await User.findById(userId);
     if (!user) {
-      throw new ApiError(404, "USer not Found");
+      throw new ApiError(404, "User not Found");
     }
 
     const accessToken = user.generateAccessToken();
@@ -46,7 +46,7 @@ const registerUser = asyncHandler(async (req, res) => {
 
   /STEP-1 GET DATA FROM FRONT-END /;
 
-  const { fullName, userName, email, password } = req.body || {};
+  const { fullName, userName, email, password } = req.body;
   //console.log("email:", email);
   //console.log(req.body);
 
@@ -76,6 +76,10 @@ const registerUser = asyncHandler(async (req, res) => {
   const avatarLocalPath = req.files?.avatar[0]?.path;
   //const coverImageLocalPath = req.files?.coverImage[0]?.path;
 
+  if (!avatarLocalPath) {
+    throw new ApiError(400, "avatar is required");
+  }
+
   let coverImageLocalPath;
   if (
     req.files &&
@@ -83,10 +87,6 @@ const registerUser = asyncHandler(async (req, res) => {
     req.files.coverImage.length > 0
   ) {
     coverImageLocalPath = req.files.coverImage[0].path;
-  }
-
-  if (!avatarLocalPath) {
-    throw new ApiError(400, "avatar is required");
   }
 
   /STEP-5 UPLOAD IMAGES TO CLOUDINARY /;

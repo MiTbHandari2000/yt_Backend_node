@@ -30,31 +30,34 @@ router.route("/register").post(
 /------------USER.LOGIN ROUTE--------/;
 
 router.route("/login").post(loginUser);
-//SECURED ROUTES/
-/------------USER.LOGOUT ROUTE--------------------/;
 
-router.route("/logout").post(verifyJWT, logoutUser);
+//SECURED ROUTES/
 
 /-----------------REFRESH-TOKENS---------------------/;
 
 router.route("/refresh-token").post(refreshAccessToken);
 
-router.route("/change-password").post(verifyJWT, changeCurrentPassword);
+// --- APPLY verifyJWT FOR ALL SUBSEQUENT ROUTES ---
+router.use(verifyJWT);
 
-router.route("/current-user").get(verifyJWT, getCurrentUser);
+/------------USER.LOGOUT ROUTE--------------------/;
 
-router.route("/update-account").patch(verifyJWT, updateAccountDetails);
+router.route("/logout").post(logoutUser);
 
-router
-  .route("/avatar")
-  .patch(verifyJWT, upload.single("avatar"), updateUserAvatar);
+router.route("/change-password").post(changeCurrentPassword);
+
+router.route("/current-user").get(getCurrentUser);
+
+router.route("/update-account").patch(updateAccountDetails);
+
+router.route("/avatar").patch(upload.single("avatar"), updateUserAvatar);
 
 router
   .route("/cover-image")
-  .patch(verifyJWT, upload.single("coverImage"), updateUserCoverImage);
+  .patch(upload.single("coverImage"), updateUserCoverImage);
 
-router.route("/c/:userName").get(verifyJWT, getUserChannelProfile);
+router.route("/c/:userName").get(getUserChannelProfile);
 
-router.route("/history").get(verifyJWT, getWatchHistory);
+router.route("/history").get(getWatchHistory);
 
 export default router;

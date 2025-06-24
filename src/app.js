@@ -2,6 +2,9 @@ import express from "express";
 import { ApiError } from "./utils/ApiError.js";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import swaggerJsdoc from "swagger-jsdoc";
+import swaggerUi from "swagger-ui-express";
+import swaggerOptions from "./utils/swaggerOptions.js";
 
 const app = express();
 
@@ -24,6 +27,16 @@ app.use(express.static("public"));
 
 /-PARSE COOKIES_ ALLOWS EASY ACCESS TO COOKIES FOR AUTH,TARCKING-/;
 app.use(cookieParser());
+
+// --- Swagger/OpenAPI Setup ---
+const swaggerSpec = swaggerJsdoc(swaggerOptions);
+app.use(
+  "/api-docs",
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpec, {
+    explorer: true,
+  })
+);
 
 /-IMPORT ROUTES FROM ROUTER.JS FILE -/;
 
