@@ -1,0 +1,93 @@
+tags:
+  - name: Tweets
+    description: Managing user tweets. All require authentication.
+
+paths:
+  /tweets:
+    post:
+      tags: [Tweets]
+      summary: Create a new tweet
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTweetRequest"
+      responses:
+        "201":
+          description: Tweet created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_TweetResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" } # Empty content, too long
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
+  /tweets/user/{userId}:
+    get:
+      tags: [Tweets]
+      summary: Get all tweets by a specific user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+        - $ref: "#/components/parameters/PageQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+      responses:
+        "200":
+          description: User's tweets fetched successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PaginatedTweetsData"
+        "400": { $ref: "#/components/responses/BadRequestError" } # Invalid UserId
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "404": { $ref: "#/components/responses/NotFoundError" } # User not found
+
+  /tweets/{tweetId}:
+    patch:
+      tags: [Tweets]
+      summary: Update an existing tweet
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TweetIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTweetRequest" # Same as CreateTweetRequest for content
+      responses:
+        "200":
+          description: Tweet updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_TweetResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" } # Not owner
+        "404": { $ref: "#/components/responses/NotFoundError" } # Tweet not found
+
+    delete:
+      tags: [Tweets]
+      summary: Delete a tweet
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TweetIdPath"
+      responses:
+        "200":
+          description: Tweet deleted successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_DeleteTweetResponseData" # Uses your specific DeleteTweetResponseData
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+        "404": { $ref: "#/components/responses/NotFoundError" }

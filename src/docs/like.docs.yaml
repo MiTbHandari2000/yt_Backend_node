@@ -1,0 +1,85 @@
+tags:
+  - name: Likes
+    description: Managing likes on videos, comments, and tweets. All routes require authentication.
+
+paths:
+  /likes/toggle/v/{videoId}:
+    post:
+      tags: [Likes]
+      summary: Toggle like on a video
+      description: Allows an authenticated user to like or unlike a specific video.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/VideoIdPath"
+      responses:
+        "200": # Also 201 for creating a like
+          description: Like status successfully toggled for the video.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_ToggleLikeResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" } # Invalid videoId
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "404": { $ref: "#/components/responses/NotFoundError" } # Video not found
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
+  /likes/toggle/c/{commentId}:
+    post:
+      tags: [Likes]
+      summary: Toggle like on a comment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CommentIdPath"
+      responses:
+        "200": # Also 201 for creating a like
+          description: Like status successfully toggled for the comment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_ToggleLikeResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "404": { $ref: "#/components/responses/NotFoundError" } # Comment not found
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
+  /likes/toggle/t/{tweetId}:
+    post:
+      tags: [Likes]
+      summary: Toggle like on a tweet
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TweetIdPath"
+      responses:
+        "200": # Also 201 for creating a like
+          description: Like status successfully toggled for the tweet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_ToggleLikeResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "404": { $ref: "#/components/responses/NotFoundError" } # Tweet not found
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
+  /likes/videos:
+    get:
+      tags: [Likes]
+      summary: Get videos liked by the authenticated user
+      description: Retrieves a paginated list of videos liked by the current user.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+      responses:
+        "200":
+          description: Successfully retrieved liked videos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PaginatedLikedVideosData" # This will use PaginatedVideosData
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "500": { $ref: "#/components/responses/InternalServerError" }

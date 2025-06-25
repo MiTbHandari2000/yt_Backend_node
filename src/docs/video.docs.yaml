@@ -1,0 +1,170 @@
+# src/docs/video.docs.yaml
+
+# Tags are defined globally in swaggerOptions.js
+
+paths:
+  /videos:
+    get:
+      tags: [Videos]
+      summary: Get all videos (paginated, filterable, sortable)
+      description: Retrieves published videos. Requires authentication. Supports filtering by text query, owner (userId), and sorting.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+        - name: query
+          in: query
+          schema: { type: string }
+          required: false
+          description: Text to search in video titles and descriptions.
+        - name: sortBy
+          in: query
+          schema:
+            {
+              type: string,
+              enum: [createdAt, duration, title, views],
+              default: createdAt,
+            }
+          required: false
+        - name: sortType
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+          required: false
+        - name: userId # For filtering by owner
+          in: query
+          schema: { $ref: "#/components/schemas/ObjectId" } # Referencing ObjectId schema
+          required: false
+          description: Filter videos by the owner's User ID.
+      responses:
+        "200":
+          description: A list of videos with pagination.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PaginatedVideosData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+
+    post:
+      tags: [Videos]
+      summary: Publish a new video
+      description: Uploads a video file and thumbnail, creating a new video record.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/PublishVideoFormData"
+      responses:
+        "201":
+          description: Video published successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_VideoResponseData" # Using specific ApiResponse wrapper
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
+  /videos/{videoId}:
+    get:
+      tags: [Videos]
+      summary: Get a specific video by its ID
+      description: Retrieves details for a single video. Increments view count. Owners can view their unpublished videos.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/VideoIdPath"
+      responses:
+        "200":
+          description: Video details fetched successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_VideoResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+        "404": { $ref: "#/components/responses/NotFoundError" }
+
+    patch:
+      tags: [Videos]
+      summary: Update video details or thumbnail
+      description: >
+        Allows the owner to update the video's title, description, or upload a new thumbnail.
+        - For title/description updates: Send `application/json` in the request body.
+        - For thumbnail updates (can optionally include title/description): Send `multipart/form-data` with a `thumbnail` file field.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/VideoIdPath"
+      requestBody:
+        description: Fields to update. At least one text field or a new thumbnail is required.
+        required: true # Controller logic expects at least some change
+        content:
+          application/json: # Option 1
+            schema:
+              $ref: "#/components/schemas/UpdateVideoTextRequest"
+          multipart/form-data: # Option 2
+            schema:
+              $ref:
+                "#/components/schemas/UpdateVideoThumbnailFormData" # This is just for the thumbnail file
+                # If sending text with thumbnail, add properties here.
+                # Or have a more generic multipart schema.
+                # For now, assuming only thumbnail via multipart for simplicity here.
+      responses:
+        "200":
+          description: Video updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_VideoResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+        "404": { $ref: "#/components/responses/NotFoundError" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
+    delete:
+      tags: [Videos]
+      summary: Delete a video
+      description: Allows the owner to delete their video, associated Cloudinary assets, and related database entries (likes, comments).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/VideoIdPath"
+      responses:
+        "200":
+          description: Video deletion process completed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_DeleteVideoResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+        "404": { $ref: "#/components/responses/NotFoundError" }
+
+  /videos/toggle/publish/{videoId}:
+    patch:
+      tags: [Videos]
+      summary: Toggle publish status of a video
+      description: Allows the owner to publish or unpublish their video.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/VideoIdPath"
+      responses:
+        "200":
+          description: Publish status toggled successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_TogglePublishResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+        "404": { $ref: "#/components/responses/NotFoundError" }

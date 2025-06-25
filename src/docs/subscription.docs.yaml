@@ -1,0 +1,69 @@
+tags:
+  - name: Subscriptions
+    description: Managing user channel subscriptions. All require authentication.
+
+paths:
+  /subscriptions/c/{channelId}: # As per your route: post for toggleSubscription
+    post:
+      tags: [Subscriptions]
+      summary: Toggle subscription to a channel
+      description: Authenticated user subscribes to or unsubscribes from the specified channel.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelIdPath" # The channel being (un)subscribed to
+      responses:
+        "200": # Or 201
+          description: Subscription status successfully toggled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_ToggleSubscriptionResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" } # e.g., self-subscription, invalid ID
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "404": { $ref: "#/components/responses/NotFoundError" } # Channel not found
+        "409": { $ref: "#/components/responses/ConflictError" } # If somehow a duplicate write is attempted despite logic
+
+  /subscriptions/u/{channelId}: # As per your route: get getUserChannelSubscribers
+    get:
+      tags: [Subscriptions]
+      summary: Get subscribers of a channel
+      description: Retrieves a paginated list of users subscribed to the specified channel.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ChannelIdPath" # The channel whose subscribers are listed
+        - $ref: "#/components/parameters/PageQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+      responses:
+        "200":
+          description: List of channel subscribers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PaginatedSubscribersData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "404": { $ref: "#/components/responses/NotFoundError" } # Channel not found
+
+  /subscriptions/subscribed-by/{userId}: # As per your route
+    get:
+      tags: [Subscriptions]
+      summary: Get channels a user is subscribed to
+      description: Retrieves a paginated list of channels the specified user is subscribed to.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath" # The user whose subscriptions are listed
+        - $ref: "#/components/parameters/PageQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+      responses:
+        "200":
+          description: List of subscribed channels.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PaginatedSubscribedChannelsData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "404": { $ref: "#/components/responses/NotFoundError" } # Subscriber user not found

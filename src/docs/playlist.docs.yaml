@@ -1,0 +1,159 @@
+tags:
+  - name: Playlists
+    description: Managing user-created video playlists. All require authentication.
+
+paths:
+  /playlists:
+    post:
+      tags: [Playlists]
+      summary: Create a new playlist
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePlaylistRequest"
+      responses:
+        "201":
+          description: Playlist created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PlaylistResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" } # Missing name
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
+  /playlists/user/{userId}:
+    get:
+      tags: [Playlists]
+      summary: Get all playlists for a specific user
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+        - $ref: "#/components/parameters/PageQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+      responses:
+        "200":
+          description: User's playlists fetched successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PaginatedPlaylistsData"
+        "400": { $ref: "#/components/responses/BadRequestError" } # Invalid userId
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "404": { $ref: "#/components/responses/NotFoundError" } # User not found
+
+  /playlists/{playlistId}:
+    get:
+      tags: [Playlists]
+      summary: Get a specific playlist by its ID (with paginated videos within)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlaylistIdPath"
+        - name: page # For videos within playlist
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit # For videos within playlist
+          in: query
+          schema: { type: integer, default: 10 }
+      responses:
+        "200":
+          description: Playlist details fetched.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PlaylistWithPaginatedVideosData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "404": { $ref: "#/components/responses/NotFoundError" } # Playlist not found
+
+    patch:
+      tags: [Playlists]
+      summary: Update playlist details (name, description)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlaylistIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePlaylistRequest"
+      responses:
+        "200":
+          description: Playlist updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PlaylistResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+        "404": { $ref: "#/components/responses/NotFoundError" }
+
+    delete:
+      tags: [Playlists]
+      summary: Delete a playlist
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlaylistIdPath"
+      responses:
+        "200":
+          description: Playlist deleted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_DeletePlaylistResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+        "404": { $ref: "#/components/responses/NotFoundError" }
+
+  /playlists/{playlistId}/add/{videoId}: # Path based on your route file
+    patch:
+      tags: [Playlists]
+      summary: Add a video to a playlist
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlaylistIdPath"
+        - $ref: "#/components/parameters/VideoIdPath"
+      responses:
+        "200":
+          description: Video added to playlist (or already exists).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PlaylistResponseData" # Returns the updated playlist
+        "400": { $ref: "#/components/responses/BadRequestError" } # Invalid IDs, or video already exists (if treated as error)
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+        "404": { $ref: "#/components/responses/NotFoundError" } # Playlist or Video not found
+
+  /playlists/{playlistId}/remove/{videoId}: # Path based on your route file
+    patch:
+      tags: [Playlists]
+      summary: Remove a video from a playlist
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PlaylistIdPath"
+        - $ref: "#/components/parameters/VideoIdPath"
+      responses:
+        "200":
+          description: Video removed from playlist.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PlaylistResponseData" # Returns the updated playlist
+        "400": { $ref: "#/components/responses/BadRequestError" } # Invalid IDs
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+        "404": { $ref: "#/components/responses/NotFoundError" } # Playlist not found, or video not in playlist

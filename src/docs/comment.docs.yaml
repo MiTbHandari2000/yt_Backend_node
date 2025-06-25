@@ -1,0 +1,108 @@
+tags:
+  - name: Comments
+    description: Managing comments on videos. All routes require authentication (except potentially GET).
+
+paths:
+  /comments/{videoId}: # Your route was router.route("/:videoId") mounted on /comments
+    get:
+      tags: [Comments]
+      summary: Get comments for a video
+      description: Retrieves a paginated list of comments for a specific video.
+      # security: # Add if this endpoint needs authentication
+      #   - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/VideoIdPath"
+        - $ref: "#/components/parameters/PageQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+      responses:
+        "200":
+          description: Comments fetched successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PaginatedCommentsData"
+        "400": { $ref: "#/components/responses/BadRequestError" } # Invalid Video ID
+        "404": { $ref: "#/components/responses/NotFoundError" } # Video not found
+        # '401': { $ref: '#/components/responses/UnauthorizedError' } # If GET is protected
+
+    post:
+      tags: [Comments]
+      summary: Add a comment to a video
+      description: Allows an authenticated user to add a comment to a specified video.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/VideoIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateCommentRequest"
+      responses:
+        "201":
+          description: Comment added successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_CommentResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" } # Missing content or invalid Video ID
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "404": { $ref: "#/components/responses/NotFoundError" } # Video not found
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
+  /comments/c/{commentId}: # Your route was router.route("/c/:commentId")
+    patch:
+      tags: [Comments]
+      summary: Update an existing comment
+      description: Allows the owner of a comment to update its content.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CommentIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCommentRequest"
+      responses:
+        "200":
+          description: Comment updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_CommentResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" } # Not the owner
+        "404": { $ref: "#/components/responses/NotFoundError" } # Comment not found
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
+    delete:
+      tags: [Comments]
+      summary: Delete an existing comment
+      description: Allows the owner of a comment to delete it. Also deletes associated likes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/CommentIdPath"
+      responses:
+        "200":
+          description: Comment deleted successfully.
+          content:
+            application/json:
+              schema: # ApiResponse wrapper
+                type: object
+                properties:
+                  success: { type: "boolean" }
+                  statusCode: { type: "integer" }
+                  data: {
+                      $ref: "#/components/schemas/DeleteCommentResponseData",
+                    } # Just { deletedCommentId: ... }
+                  message: { type: "string" }
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "403": { $ref: "#/components/responses/ForbiddenError" }
+        "404": { $ref: "#/components/responses/NotFoundError" }
+        "500": { $ref: "#/components/responses/InternalServerError" }

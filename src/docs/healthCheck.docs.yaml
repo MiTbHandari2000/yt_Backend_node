@@ -1,0 +1,22 @@
+tags:
+  - name: Healthcheck
+    description: API health status endpoint.
+
+paths:
+  /healthcheck: # Assuming this router is mounted at /api/v1/healthcheck
+    get:
+      tags: [Healthcheck]
+      summary: Check the API health status
+      description: Returns the current operational status of the API. This endpoint is public and does not require authentication.
+      responses:
+        "200":
+          description: API is healthy and operational.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_HealthcheckResponseData"
+        "503": # Example if health check could fail
+          description: Service Unavailable (API is not healthy).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }

@@ -1,0 +1,277 @@
+paths:
+  /users/register:
+    post:
+      tags: [User Authentication]
+      summary: Register a new user
+      description: Creates a new user account. Avatar image is required. Cover Image is optional.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [fullName, userName, email, password, avatar]
+              properties:
+                fullName: { type: string, example: "Test User Full" }
+                userName: { type: string, example: "testuser_reg_01" }
+                email:
+                  {
+                    type: string,
+                    format: email,
+                    example: "register01@example.com",
+                  }
+                password:
+                  {
+                    type: string,
+                    format: password,
+                    minLength: 6,
+                    example: "MyP@$$wOrd1",
+                  }
+                avatar:
+                  {
+                    type: string,
+                    format: binary,
+                    description: "Avatar image file",
+                  }
+                coverImage:
+                  {
+                    type: string,
+                    format: binary,
+                    nullable: true,
+                    description: "Cover image file (optional)",
+                  }
+      responses:
+        "201":
+          description: User registered successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_UserResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "409": { $ref: "#/components/responses/ConflictError" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
+  /users/login:
+    post:
+      tags: [User Authentication]
+      summary: Login an existing user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: User logged in successfully. Tokens in body and HttpOnly cookies.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_LoginSuccessData"
+          headers:
+            Set-Cookie:
+              description: HttpOnly cookies for accessToken and refreshToken.
+              schema:
+                {
+                  type: string,
+                  example: "accessToken=jwt;..., refreshToken=jwt;...",
+                }
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" } # For invalid credentials
+        "404": { $ref: "#/components/responses/NotFoundError" } # For user not found
+
+  /users/refresh-token:
+    post:
+      tags: [User Authentication]
+      summary: Refresh JWT access token
+      description: Uses a refresh token (expected via HttpOnly cookie, fallback to body) for new tokens.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken:
+                  {
+                    type: string,
+                    description: "User's refresh token (if not via cookie).",
+                  }
+      responses:
+        "200":
+          description: Tokens refreshed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_RefreshTokenSuccessData"
+          headers:
+            Set-Cookie:
+              {
+                description: "HttpOnly cookies for new accessToken and refreshToken.",
+                schema: { type: string },
+              }
+        "401": { $ref: "#/components/responses/UnauthorizedError" } # For invalid/expired refresh token
+
+  /users/logout:
+    post:
+      tags: [User Account]
+      summary: Logout current authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { $ref: "#/components/responses/GenericSuccess" } # Uses the reusable response
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+
+  /users/change-password:
+    post: # Your controller used post, patch is also common for updates
+      tags: [User Account]
+      summary: Change current user's password
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordChangeRequest"
+      responses:
+        "200": { $ref: "#/components/responses/GenericSuccess" }
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+
+  /users/current-user:
+    get:
+      tags: [User Account]
+      summary: Get current authenticated user's details
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user details fetched.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_UserResponseData" # Correctly named from swaggerOptions
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+
+  /users/update-account:
+    patch:
+      tags: [User Account]
+      summary: Update current user's account details (fullName, email)
+      security:
+        - bearerAuth: []
+      requestBody:
+        # required: false # Body is needed, but fields within are optional (at least one)
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountUpdateRequest"
+      responses:
+        "200":
+          description: Account details updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_UserResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "409": { $ref: "#/components/responses/ConflictError" } # If email is taken
+
+  /users/avatar:
+    patch:
+      tags: [User Account]
+      summary: Update current user's avatar
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [avatar]
+              properties:
+                avatar:
+                  {
+                    type: string,
+                    format: binary,
+                    description: "New avatar image file.",
+                  }
+      responses:
+        "200":
+          description: Avatar updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_UserResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "500": { $ref: "#/components/responses/InternalServerError" } # For upload/DB errors
+
+  /users/cover-image:
+    patch:
+      tags: [User Account]
+      summary: Update current user's cover image
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true # Based on controller logic expecting a file if route is hit
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [coverImage] # Assuming always required if this specific endpoint is used for update
+              properties:
+                coverImage:
+                  {
+                    type: string,
+                    format: binary,
+                    description: "New cover image file.",
+                  }
+      responses:
+        "200":
+          description: Cover image updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_UserResponseData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
+
+  /users/c/{userName}: # Corresponds to your route /c/:userName
+    get:
+      tags: [User Account] # Or "Public Profiles" if auth is optional
+      summary: Get user channel profile by username
+      security:
+        - bearerAuth: [] # Needed if isSubscribed field relies on current user
+      parameters:
+        - $ref: "#/components/parameters/UserNamePath"
+      responses:
+        "200":
+          description: Channel profile fetched successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_UserChannelProfileData"
+        "400": { $ref: "#/components/responses/BadRequestError" }
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
+        "404": { $ref: "#/components/responses/NotFoundError" }
+
+  /users/history:
+    get:
+      tags: [User Account]
+      summary: Get current user's watch history (paginated)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageQueryParam"
+        - $ref: "#/components/parameters/LimitQueryParam"
+      responses:
+        "200":
+          description: Watch history fetched successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiResponse_PaginatedWatchHistoryData"
+        "401": { $ref: "#/components/responses/UnauthorizedError" }
