@@ -25,7 +25,7 @@ app.use(express.urlencoded({ extended: true, limit: "16kb" }));
 /-SERVES STATIC FILE FROM PUBLIC DIRECTORY-/;
 app.use(express.static("public"));
 
-/-PARSE COOKIES_ ALLOWS EASY ACCESS TO COOKIES FOR AUTH,TARCKING-/;
+/-PARSE COOKIES_ ALLOWS EASY ACCESS TO COOKIES FOR AUTH,TRACKING-/;
 app.use(cookieParser());
 
 // --- Swagger/OpenAPI Setup ---
